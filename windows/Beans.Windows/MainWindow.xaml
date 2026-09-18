@@ -66,6 +66,59 @@
                                 </StackPanel>
                             </Border>
                             <Border Background="{ThemeResource BeansSurfaceBrush}" CornerRadius="8" Padding="22">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="播放器视觉" FontSize="{Binding HeadingSize, Source={StaticResource BeansTypography}, Mode=OneWay}" FontWeight="SemiBold" Foreground="{ThemeResource BeansTextBrush}"/>
+                                    <ComboBox x:Name="PlayerEffectPicker" Header="视觉模式" SelectionChanged="PlayerEffectPicker_SelectionChanged">
+                                        <ComboBoxItem Content="静谧" Tag="quiet"/><ComboBoxItem Content="流光" Tag="flow"/><ComboBoxItem Content="星尘波纹" Tag="stardust"/><ComboBoxItem Content="频谱舞台" Tag="spectrum"/><ComboBoxItem Content="经典黑胶" Tag="vinyl"/>
+                                    </ComboBox>
+                                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <Slider x:Name="PlayerEffectIntensitySlider" Minimum="0.25" Maximum="1" StepFrequency="0.05" ValueChanged="PlayerEffectIntensity_ValueChanged" AutomationProperties.Name="播放器特效强度"/>
+                                        <TextBlock Grid.Column="1" x:Name="PlayerEffectIntensityText" VerticalAlignment="Center" Foreground="{ThemeResource BeansMutedBrush}"/>
+                                    </Grid>
+                                    <TextBlock Text="本地音乐由 AudioGraph 读取真实分析帧；平台流媒体使用非侵入式节奏动画。系统关闭动画时自动显示静态版本。" TextWrapping="Wrap" Foreground="{ThemeResource BeansMutedBrush}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="{ThemeResource BeansSurfaceBrush}" CornerRadius="8" Padding="22">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="歌词显示" FontSize="{Binding HeadingSize, Source={StaticResource BeansTypography}, Mode=OneWay}" FontWeight="SemiBold" Foreground="{ThemeResource BeansTextBrush}"/>
+                                    <ComboBox x:Name="LyricStylePicker" Header="样式预设" SelectionChanged="LyricStylePicker_SelectionChanged">
+                                        <ComboBoxItem Content="极简" Tag="minimal"/><ComboBoxItem Content="流光" Tag="flow"/><ComboBoxItem Content="逐行卡拉 OK" Tag="karaoke"/><ComboBoxItem Content="高对比" Tag="contrast"/><ComboBoxItem Content="自定义" Tag="custom" Visibility="Collapsed"/>
+                                    </ComboBox>
+                                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <Slider x:Name="LyricFontSizeSlider" Minimum="12" Maximum="40" StepFrequency="1" ValueChanged="LyricSetting_ValueChanged" AutomationProperties.Name="歌词字号"/>
+                                        <TextBlock Grid.Column="1" x:Name="LyricFontSizeText" VerticalAlignment="Center" Foreground="{ThemeResource BeansMutedBrush}"/>
+                                    </Grid>
+                                    <Slider x:Name="LyricLineSpacingSlider" Header="行距" Minimum="0" Maximum="20" StepFrequency="1" ValueChanged="LyricSetting_ValueChanged"/>
+                                    <ToggleSwitch x:Name="LyricTranslationToggle" Header="显示翻译" Toggled="LyricSetting_Toggled"/>
+                                    <ComboBox x:Name="LyricAlignmentPicker" Header="对齐方式" SelectionChanged="LyricSetting_SelectionChanged">
+                                        <ComboBoxItem Content="左对齐" Tag="leading"/><ComboBoxItem Content="居中" Tag="center"/>
+                                    </ComboBox>
+                                    <Expander Header="高级设置">
+                                        <StackPanel Spacing="10" Padding="0,10,0,0">
+                                            <TextBlock Text="高亮颜色" Foreground="{ThemeResource BeansTextBrush}"/>
+                                            <ColorPicker x:Name="LyricColorPicker" IsAlphaEnabled="False" ColorChanged="LyricAdvancedColor_Changed" AutomationProperties.Name="歌词高亮颜色"/>
+                                            <ToggleSwitch x:Name="LyricGlowToggle" Header="发光" Toggled="LyricAdvanced_Toggled"/>
+                                            <ToggleSwitch x:Name="LyricBlurToggle" Header="非当前行轻微模糊" Toggled="LyricAdvanced_Toggled"/>
+                                            <ToggleSwitch x:Name="LyricItalicToggle" Header="倾斜" Toggled="LyricAdvanced_Toggled"/>
+                                            <ComboBox x:Name="LyricBackgroundPicker" Header="歌词背景" SelectionChanged="LyricAdvanced_SelectionChanged">
+                                                <ComboBoxItem Content="透明" Tag="clear"/><ComboBoxItem Content="柔和遮罩" Tag="soft"/><ComboBoxItem Content="高对比遮罩" Tag="contrast"/>
+                                            </ComboBox>
+                                            <NumberBox x:Name="LyricOffsetBox" Header="时间偏移（秒）" Minimum="-5" Maximum="5" SmallChange="0.1" SpinButtonPlacementMode="Inline" ValueChanged="LyricAdvancedOffset_Changed"/>
+                                            <TextBlock Text="自定义背景图片仅保存在本机。高对比预设会关闭模糊和发光。" TextWrapping="Wrap" Foreground="{ThemeResource BeansMutedBrush}"/>
+                                        </StackPanel>
+                                    </Expander>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="{ThemeResource BeansSurfaceBrush}" CornerRadius="8" Padding="22">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="应用与更新" FontSize="{Binding HeadingSize, Source={StaticResource BeansTypography}, Mode=OneWay}" FontWeight="SemiBold" Foreground="{ThemeResource BeansTextBrush}"/>
+                                    <ToggleSwitch x:Name="AutomaticUpdateToggle" Header="应用内更新通知" Toggled="AutomaticUpdateToggle_Toggled"/>
+                                    <TextBlock Text="开启后每 24 小时检查一次 GitHub Releases；不会静默安装。" TextWrapping="Wrap" Foreground="{ThemeResource BeansMutedBrush}"/>
+                                    <Button Content="检查更新" Click="CheckUpdate_Click" HorizontalAlignment="Left"/>
+                                    <TextBlock x:Name="UpdateStatus" Text="尚未检查" TextWrapping="Wrap" Foreground="{ThemeResource BeansMutedBrush}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="{ThemeResource BeansSurfaceBrush}" CornerRadius="8" Padding="22">
                                 <StackPanel Spacing="10">
                                     <TextBlock Text="应用信息" FontSize="{Binding HeadingSize, Source={StaticResource BeansTypography}, Mode=OneWay}" FontWeight="SemiBold" Foreground="{ThemeResource BeansTextBrush}"/>
                                     <TextBlock Text="Beans Music · Windows 11" Foreground="{ThemeResource BeansMutedBrush}"/>
@@ -240,6 +293,7 @@
         <Border Grid.Row="1" Background="{ThemeResource BeansSurfaceBrush}" Padding="18,12" MinHeight="92">
             <Grid ColumnSpacing="16">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="*"/><ColumnDefinition Width="260"/></Grid.ColumnDefinitions>
+                <Canvas x:Name="PlayerEffectCanvas" Grid.ColumnSpan="3" Height="76" VerticalAlignment="Center" IsHitTestVisible="False" Opacity="0.72"/>
                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                     <Border Width="58" Height="58" CornerRadius="8" Background="{ThemeResource BeansPrimaryBrush}"/>
                     <StackPanel VerticalAlignment="Center"><TextBlock x:Name="PlayerTitle" Text="尚未播放" FontWeight="SemiBold" Foreground="{ThemeResource BeansTextBrush}" TextWrapping="Wrap"/><TextBlock x:Name="PlayerArtist" Text="Beans Music" Foreground="{ThemeResource BeansMutedBrush}" TextWrapping="Wrap"/></StackPanel>
@@ -286,6 +340,21 @@
                         <Button Content="授权 QQ 音乐" Click="AuthorizeQq_Click"/>
                         <Button Grid.Column="1" Content="授权网易云音乐" Click="AuthorizeNetease_Click"/>
                     </Grid>
+                    <Border Background="#16000000" CornerRadius="8" Padding="14">
+                        <StackPanel Spacing="10">
+                            <Grid><TextBlock Text="凭证有效性" FontWeight="SemiBold"/><Ellipse x:Name="CredentialAttentionDot" Width="8" Height="8" Fill="OrangeRed" HorizontalAlignment="Right" Visibility="Collapsed"/></Grid>
+                            <ToggleSwitch x:Name="AutomaticProbeToggle" Header="每 24 小时自动检测" Toggled="AutomaticProbeToggle_Toggled"/>
+                            <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <StackPanel><TextBlock Text="QQ 音乐"/><TextBlock x:Name="QqProbeStatus" Text="未检测" TextWrapping="Wrap" Foreground="{ThemeResource BeansMutedBrush}"/></StackPanel>
+                                <Button Grid.Column="1" Content="立即检测" Click="ProbeQq_Click"/>
+                            </Grid>
+                            <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <StackPanel><TextBlock Text="网易云音乐"/><TextBlock x:Name="NeteaseProbeStatus" Text="未检测" TextWrapping="Wrap" Foreground="{ThemeResource BeansMutedBrush}"/></StackPanel>
+                                <Button Grid.Column="1" Content="立即检测" Click="ProbeNetease_Click"/>
+                            </Grid>
+                            <Button Content="检测全部" Click="ProbeAll_Click" HorizontalAlignment="Left"/>
+                        </StackPanel>
+                    </Border>
                     <Expander Header="设备管理">
                         <StackPanel Spacing="10" Padding="0,10,0,0">
                             <Button Content="刷新设备" Click="RefreshDevices_Click"/>
@@ -305,6 +374,15 @@
                     </Expander>
                 </StackPanel></ScrollViewer>
             </Border></Grid>
+        </Border>
+        <Border x:Name="TopBanner" Grid.RowSpan="2" Margin="18,12" Padding="14,10" CornerRadius="8" Background="#F0202A31" BorderBrush="{ThemeResource BeansPrimaryBrush}" BorderThickness="1" VerticalAlignment="Top" HorizontalAlignment="Stretch" Visibility="Collapsed" Canvas.ZIndex="40">
+            <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <FontIcon Glyph="&#xE946;" Foreground="{ThemeResource BeansPrimaryBrush}" VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1"><TextBlock x:Name="TopBannerTitle" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="TopBannerMessage" Foreground="{ThemeResource BeansMutedBrush}" TextWrapping="Wrap"/></StackPanel>
+                <Button x:Name="TopBannerPrimary" Grid.Column="2" Content="查看" Click="TopBannerPrimary_Click"/>
+                <Button x:Name="TopBannerLater" Grid.Column="3" Content="稍后提醒" Click="TopBannerLater_Click"/>
+                <Button x:Name="TopBannerIgnore" Grid.Column="4" Content="忽略此版本" Click="TopBannerIgnore_Click"/>
+            </Grid>
         </Border>
     </Grid>
 </Window>

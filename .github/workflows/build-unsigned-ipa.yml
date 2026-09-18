@@ -2,17 +2,9 @@ name: Build Unsigned IPA
 
 on:
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: '是否发布 GitHub Release（false = 只构建 IPA 供测试）'
-        required: false
-        default: 'false'
-        type: boolean
-  push:
-    branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-ipa:
@@ -88,44 +80,3 @@ jobs:
         with:
           name: Beans-unsigned-ipa
           path: Beans-unsigned.ipa
-
-      - name: Build release notes from CHANGELOG
-        run: |
-          python3 - <<'PYEOF'
-          import re
-          ver = open('version.txt').read().strip()
-          content = open('CHANGELOG.md', encoding='utf-8').read()
-          m = re.search(r'^##\s+' + re.escape(ver) + r'\s*$([\s\S]*?)(?=^##\s|\Z)', content, re.M)
-          body = m.group(1).strip() if m else ('版本 ' + ver + ' 的更新内容。')
-          body = '# Beans Music ' + ver + '\n\n' + body + '\n'
-          with open('release_body.md', 'w', encoding='utf-8') as f:
-              f.write(body)
-          print(body)
-          PYEOF
-
-      - name: Publish Release
-        if: success() && (github.event_name != 'workflow_dispatch' || github.event.inputs.publish_release == 'true')
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ env.VERSION_TAG }}
-          name: Beans Music ${{ env.VERSION_LABEL }}
-          body_path: release_body.md
-          files: Beans-unsigned.ipa
-          update_release_body: true
-          update_release_name: true
-          update_release_assets: true
-
-      - name: Commit version bump back
-        if: success() && github.ref == 'refs/heads/main'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add project.yml
-          if git diff --cached --quiet; then
-            echo "no version change to commit"
-          else
-            git commit -m "chore: bump build to $(cat version.txt) [skip ci]"
-            git push
-          fi

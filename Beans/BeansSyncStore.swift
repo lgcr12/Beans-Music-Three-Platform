@@ -25,6 +25,13 @@ struct BeansThemeSyncPayload: Codable {
 
 struct BeansPreferenceSyncPayload: Codable {
     let enabledPlatforms: [String]
+    let playerEffectMode: String?
+    let playerEffectIntensity: Double?
+    let lyricStylePreset: String?
+    let lyricFontSize: Int?
+    let lyricLineSpacing: Int?
+    let lyricTranslation: Bool?
+    let lyricAlignment: String?
 }
 
 struct BeansHistorySyncPayload: Codable {

@@ -156,8 +156,12 @@ final class QQMusicAuth: ObservableObject {
         request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
         request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        if http.statusCode == 401 || http.statusCode == 403 { return false }
+        guard http.statusCode == 200 else { throw URLError(.badServerResponse) }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw URLError(.cannotParseResponse)
+        }
         let code = object["code"] as? Int ?? -1
         return code == 0 || code == 1000
     }

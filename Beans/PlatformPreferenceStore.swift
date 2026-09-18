@@ -66,13 +66,38 @@ final class PlatformPreferenceStore: ObservableObject {
     }
 
     var syncPayload: BeansPreferenceSyncPayload {
-        BeansPreferenceSyncPayload(enabledPlatforms: selectedRaw.sorted())
+        let defaults = UserDefaults.standard
+        return BeansPreferenceSyncPayload(
+            enabledPlatforms: selectedRaw.sorted(),
+            playerEffectMode: defaults.string(forKey: "beans.playerVisualMode") ?? PlayerVisualMode.migratedDefaultRawValue,
+            playerEffectIntensity: defaults.object(forKey: "beans.djVisualIntensity") as? Double ?? 0.8,
+            lyricStylePreset: defaults.string(forKey: "beans.lyricStylePreset") ?? LyricStylePreset.flow.rawValue,
+            lyricFontSize: defaults.object(forKey: "beans.lyricFontSize") as? Int ?? 17,
+            lyricLineSpacing: defaults.object(forKey: "beans.lyricSpacing") as? Int ?? 24,
+            lyricTranslation: defaults.object(forKey: "beans.lyricTranslation") as? Bool ?? true,
+            lyricAlignment: defaults.string(forKey: "beans.lyricAlignRaw") ?? "center"
+        )
     }
 
     func applyRemote(_ value: BeansPreferenceSyncPayload) {
         selectedRaw = Set(value.enabledPlatforms)
         normalize()
-        UserDefaults.standard.set(Array(selectedRaw), forKey: Self.key)
+        let defaults = UserDefaults.standard
+        defaults.set(Array(selectedRaw), forKey: Self.key)
+        if let mode = value.playerEffectMode, PlayerVisualMode(rawValue: mode) != nil { defaults.set(mode, forKey: "beans.playerVisualMode") }
+        if let intensity = value.playerEffectIntensity { defaults.set(min(max(intensity, 0.2), 1), forKey: "beans.djVisualIntensity") }
+        if let preset = value.lyricStylePreset, LyricStylePreset(rawValue: preset) != nil { defaults.set(preset, forKey: "beans.lyricStylePreset") }
+        if let size = value.lyricFontSize { defaults.set(min(max(size, 12), 40), forKey: "beans.lyricFontSize") }
+        if let spacing = value.lyricLineSpacing { defaults.set(min(max(spacing, 14), 40), forKey: "beans.lyricSpacing") }
+        if let translation = value.lyricTranslation { defaults.set(translation, forKey: "beans.lyricTranslation") }
+        if let alignment = value.lyricAlignment, alignment == "center" || alignment == "left" { defaults.set(alignment, forKey: "beans.lyricAlignRaw") }
+    }
+
+    func syncPlayerPreferences() {
+        let payload = syncPayload
+        Task { @MainActor in
+            BeansAccountStore.shared.queueSync(entityType: "preference", entityID: "platforms", payload: payload)
+        }
     }
 
     private func normalize() {

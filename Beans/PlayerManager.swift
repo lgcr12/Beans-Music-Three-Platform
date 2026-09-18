@@ -70,6 +70,8 @@ final class PlayerManager: NSObject, ObservableObject {
     @Published var sleepTimerRemaining: Int = 0
     @Published var history: [Song] = []
     @Published var playCounts: [String: Int] = [:]
+    @Published private(set) var localSpectrumLevels = [Double](repeating: 0, count: 24)
+    @Published private(set) var hasLocalSpectrum = false
 
     private var player: AVPlayer?
     private var timeObserver: Any?
@@ -77,6 +79,7 @@ final class PlayerManager: NSObject, ObservableObject {
     private var failureObserver: NSObjectProtocol?
     private var itemStatusObserver: NSKeyValueObservation?
     private var timeControlStatusObserver: NSKeyValueObservation?
+    private let localSpectrumAnalyzer = LocalAudioSpectrumAnalyzer()
     /// QQ 官方 vkey 地址交给 AVPlayer 后仍可能因 CDN 节点或音质不可用而失败。
     private var attemptedQQOfficialBRsBySong: [String: Set<String>] = [:]
     private var playbackRecoveryInFlightSongKey: String?
@@ -123,6 +126,9 @@ final class PlayerManager: NSObject, ObservableObject {
 
     override init() {
         super.init()
+        localSpectrumAnalyzer.onSpectrum = { [weak self] levels in
+            self?.localSpectrumLevels = levels
+        }
         loadHistory()
         loadPlayCounts()
         loadPlaybackState()
@@ -735,6 +741,7 @@ final class PlayerManager: NSObject, ObservableObject {
         } else {
             item = AVPlayerItem(url: url)
         }
+        configureLocalSpectrum(for: item, sourceURL: url)
         let player = AVPlayer(playerItem: item)
         player.rate = Float(rate)
         self.player = player
@@ -827,6 +834,9 @@ final class PlayerManager: NSObject, ObservableObject {
     }
 
     private func removeCurrentObservers() {
+        localSpectrumAnalyzer.detach()
+        hasLocalSpectrum = false
+        localSpectrumLevels = [Double](repeating: 0, count: 24)
         if let timeObserver {
             player?.removeTimeObserver(timeObserver)
         }
@@ -844,6 +854,17 @@ final class PlayerManager: NSObject, ObservableObject {
         playbackConfirmed = false
         pendingThirdPartyVIPNotice = nil
         lastPublishedProgress = -1
+    }
+
+    private func configureLocalSpectrum(for item: AVPlayerItem, sourceURL: URL) {
+        guard sourceURL.isFileURL else { return }
+        Task { @MainActor [weak self, weak item] in
+            guard let self, let item,
+                  let track = try? await item.asset.loadTracks(withMediaType: .audio).first,
+                  self.player?.currentItem === item,
+                  self.localSpectrumAnalyzer.attach(to: item, track: track) else { return }
+            self.hasLocalSpectrum = true
+        }
     }
 
     private func thirdPartyVIPNotice(for song: Song, sourceTitle: String) -> ThirdPartyVIPNotice? {

@@ -1,0 +1,114 @@
+name: Publish Three-Platform Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发布标签，例如 v1.6.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  apple:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Build unsigned IPA and Catalyst ZIP
+        run: |
+          xcodebuild -project Beans.xcodeproj -scheme Beans -configuration Release -sdk iphoneos \
+            -derivedDataPath build-release-ios CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+          mkdir Payload
+          cp -R build-release-ios/Build/Products/Release-iphoneos/Beans.app Payload/
+          ditto -c -k --sequesterRsrc --keepParent Payload Beans-iOS26-unsigned.ipa
+          xcodebuild -project Beans.xcodeproj -scheme BeansCatalyst -configuration Release \
+            -destination 'generic/platform=macOS,variant=Mac Catalyst' -derivedDataPath build-release-catalyst \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+          ditto -c -k --sequesterRsrc --keepParent \
+            "build-release-catalyst/Build/Products/Release-maccatalyst/Beans Music.app" Beans-macOS15-Catalyst.app.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-apple
+          path: |
+            Beans-iOS26-unsigned.ipa
+            Beans-macOS15-Catalyst.app.zip
+
+  windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - platform: x64
+            runtime: win-x64
+          - platform: arm64
+            runtime: win-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test windows/Beans.Core.Tests/Beans.Core.Tests.csproj --configuration Release --nologo
+      - name: Build unsigned MSIX
+        shell: pwsh
+        run: >-
+          dotnet build windows/Beans.Windows/Beans.Windows.csproj
+          --configuration Release
+          -p:Platform=${{ matrix.platform }}
+          -p:RuntimeIdentifier=${{ matrix.runtime }}
+          -p:GenerateAppxPackageOnBuild=true
+          -p:AppxPackageSigningEnabled=false
+          -p:UapAppxPackageBuildMode=SideloadOnly
+      - name: Collect MSIX
+        shell: pwsh
+        run: |
+          $package = Get-ChildItem windows/Beans.Windows/AppPackages -Recurse -Filter *.msix | Select-Object -First 1
+          if (-not $package) { throw "MSIX package not found" }
+          Copy-Item $package.FullName "Beans-Windows-${{ matrix.platform }}.msix"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-${{ matrix.platform }}
+          path: Beans-Windows-${{ matrix.platform }}.msix
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          docker build -f server/Beans.Api/Dockerfile -t beans-api:${{ github.sha }} server/Beans.Api
+          docker save beans-api:${{ github.sha }} | gzip > Beans-Server-Docker-image.tar.gz
+          tar -czf Beans-Server-Compose.tar.gz server/compose.yaml server/Caddyfile server/.env.example
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-server
+          path: |
+            Beans-Server-Docker-image.tar.gz
+            Beans-Server-Compose.tar.gz
+
+  publish:
+    needs: [apple, windows, backend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Resolve release tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "RELEASE_TAG=${{ inputs.tag }}" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Beans Music ${{ env.RELEASE_TAG }}
+          generate_release_notes: true
+          files: release-assets/*

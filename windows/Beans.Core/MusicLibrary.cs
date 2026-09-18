@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 namespace Beans.Core;
 
 public sealed record LocalMusicTrack(string Id, string Path, string Title, string Extension, long Size, DateTimeOffset ModifiedAt);
-public sealed record LyricLine(TimeSpan Time, string Text);
+public sealed record LyricLine(TimeSpan Time, string Text, string? Translation = null);
 public sealed record DownloadRequest(Uri Source, string DestinationPath);
 
 public static class LocalMusicScanner
@@ -54,7 +54,15 @@ public static class LrcParser
                 result.Add(new(time, lyric));
             }
         }
-        return result.OrderBy(x => x.Time).ToList();
+        return result
+            .GroupBy(line => line.Time)
+            .Select(group =>
+            {
+                var values = group.Select(line => line.Text).Where(value => !string.IsNullOrWhiteSpace(value)).ToArray();
+                return new LyricLine(group.Key, values.FirstOrDefault() ?? string.Empty, values.Skip(1).FirstOrDefault());
+            })
+            .OrderBy(line => line.Time)
+            .ToList();
     }
 }
 

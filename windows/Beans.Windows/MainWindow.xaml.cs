@@ -1,20 +1,50 @@
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Beans.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Shapes;
 using QRCoder;
+using Windows.ApplicationModel;
+using Windows.Foundation;
 using Windows.Media.Core;
 using Windows.Media.Playback;
+using Windows.System;
 using Windows.Storage.Streams;
+using Windows.UI.ViewManagement;
 
 namespace Beans.Windows;
 
 public sealed partial class MainWindow : Window
 {
     private sealed record StoredSession(AccountRecord Account, TokenPair Tokens, byte[] VaultKey);
+    private sealed record PlayerExperienceSettings(
+        string EffectMode = "flow",
+        double EffectIntensity = 0.7,
+        string LyricStyle = "flow",
+        double LyricFontSize = 24,
+        double LyricLineSpacing = 8,
+        bool LyricTranslation = true,
+        string LyricAlignment = "center",
+        string LyricColor = "#55E1B2",
+        bool LyricGlow = true,
+        bool LyricBlur = false,
+        bool LyricItalic = false,
+        string LyricBackground = "soft",
+        double LyricOffsetSeconds = 0);
+    private sealed record UpdateNotificationState(
+        bool AutomaticEnabled = true,
+        DateTimeOffset? LastCheckedAt = null,
+        string? ETag = null,
+        string? IgnoredVersion = null,
+        string? LastPromptedVersion = null,
+        bool RemindLater = false,
+        ApplicationRelease? CachedRelease = null);
+    private enum BannerKind { None, Credential, Update }
 
     private readonly BeansApiClient _api = new(new HttpClient { Timeout = TimeSpan.FromSeconds(25) });
     private readonly PlatformMusicClient _platformClient = new(new HttpClient { Timeout = TimeSpan.FromSeconds(25) });
@@ -23,10 +53,15 @@ public sealed partial class MainWindow : Window
     private readonly ListeningInsightsStore _insights = new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BeansMusic", "listening.sqlite"));
     private readonly DeviceInput _device;
     private readonly MediaPlayer _mediaPlayer = new();
+    private readonly LocalSpectrumAnalyzer _spectrumAnalyzer = new();
     private readonly ResumableDownloader _downloader = new(new HttpClient { Timeout = TimeSpan.FromMinutes(10) });
+    private readonly ApplicationUpdateService _updateService = new(new HttpClient { Timeout = TimeSpan.FromSeconds(20) });
+    private readonly CredentialProbeService _credentialProbe;
     private IReadOnlyList<LocalMusicTrack> _localTracks = [];
     private readonly List<LocalMusicTrack> _queue = [];
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _lyricTimer;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _visualTimer;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _maintenanceTimer;
     private IReadOnlyList<LyricLine> _lyrics = [];
     private int _currentLyricIndex = -1;
     private PendingRegistration? _pendingRegistration;
@@ -43,6 +78,17 @@ public sealed partial class MainWindow : Window
     private string _currentPage = "home";
     private LocalMusicTrack? _currentLocalTrack;
     private IReadOnlyList<ListeningInsight> _recentInsights = [];
+    private PlayerExperienceSettings _playerSettings = new();
+    private UpdateNotificationState _updateState = new();
+    private bool _automaticProbeEnabled = true;
+    private bool _applyingExperienceSettings;
+    private double[] _spectrumValues = new double[24];
+    private readonly Dictionary<int, (TextBlock Overlay, RectangleGeometry Clip)> _karaokeLines = [];
+    private CancellationTokenSource? _experienceSyncDebounce;
+    private BannerKind _bannerKind;
+    private ApplicationRelease? _pendingRelease;
+    private bool _updateCheckInFlight;
+    private readonly bool _animationsEnabled = new UISettings().AnimationsEnabled;
     private TypographyService Typography => (TypographyService)Application.Current.Resources["BeansTypography"];
 
     public MainWindow()
@@ -54,8 +100,22 @@ public sealed partial class MainWindow : Window
         _lyricTimer.Interval = TimeSpan.FromMilliseconds(250);
         _lyricTimer.Tick += (_, _) => UpdateCurrentLyric();
         _lyricTimer.Start();
+        _visualTimer = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _visualTimer.Interval = TimeSpan.FromMilliseconds(33);
+        _visualTimer.Tick += (_, _) => RenderPlayerEffect();
+        _maintenanceTimer = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _maintenanceTimer.Interval = TimeSpan.FromMinutes(30);
+        _maintenanceTimer.Tick += async (_, _) => await RunAutomaticMaintenanceAsync();
+        _maintenanceTimer.Start();
         Typography.PercentChanged += Typography_PercentChanged;
-        _mediaPlayer.PlaybackSession.PlaybackStateChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdateUniversePlaybackState);
+        _mediaPlayer.PlaybackSession.PlaybackStateChanged += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateUniversePlaybackState();
+            if (_mediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing) _spectrumAnalyzer.Resume();
+            else _spectrumAnalyzer.Pause();
+            UpdateVisualTimerState();
+        });
+        _spectrumAnalyzer.SpectrumAvailable += (_, values) => _spectrumValues = values;
         ApplyReferenceLayout("aurora");
         _ = RefreshMusicUniverseAsync();
         var deviceId = _secureStore.Load<Guid?>("device-id") ?? Guid.NewGuid();
@@ -63,6 +123,19 @@ public sealed partial class MainWindow : Window
         _device = new DeviceInput(deviceId, Environment.MachineName, "windows");
         _platformCredentials = _secureStore.Load<PlatformCredentialBundle>("platform-credentials")
             ?? new PlatformCredentialBundle(null, null, DateTimeOffset.UtcNow);
+        _playerSettings = _secureStore.Load<PlayerExperienceSettings>("player-experience") ?? new();
+        _updateState = _secureStore.Load<UpdateNotificationState>("update-notifications") ?? new();
+        _automaticProbeEnabled = _secureStore.Load<bool?>("credential-probe-automatic") ?? true;
+        var restoredProbeResults = _secureStore.Load<List<PlatformCredentialProbeResult>>("credential-probe-results") ?? [];
+        _credentialProbe = new CredentialProbeService(
+            _platformClient,
+            provider => provider == "qq" ? _platformCredentials.Qq : _platformCredentials.Netease,
+            restoredProbeResults);
+        _credentialProbe.ResultChanged += CredentialProbe_ResultChanged;
+        ApplyExperienceSettings();
+        AutomaticProbeToggle.IsOn = _automaticProbeEnabled;
+        AutomaticUpdateToggle.IsOn = _updateState.AutomaticEnabled;
+        RenderCredentialProbeStatus();
         _api.TokensChanged += tokens =>
         {
             if (_session is null) return;
@@ -70,6 +143,13 @@ public sealed partial class MainWindow : Window
             _secureStore.Save("session", _session);
         };
         Root.SizeChanged += (_, _) => UpdateRightRailWidth();
+        Activated += async (_, _) => await RunAutomaticMaintenanceAsync();
+        Closed += async (_, _) =>
+        {
+            _visualTimer.Stop();
+            _maintenanceTimer.Stop();
+            await _spectrumAnalyzer.DisposeAsync();
+        };
         _session = _secureStore.Load<StoredSession>("session");
         if (_session is not null)
         {
@@ -77,10 +157,231 @@ public sealed partial class MainWindow : Window
             SetSignedIn(_session.Account);
             _ = RestoreSignedInSessionAsync();
         }
+        _ = RunAutomaticMaintenanceAsync();
     }
 
-    private void AccountButton_Click(object sender, RoutedEventArgs e) => AccountOverlay.Visibility = Visibility.Visible;
+    private void AccountButton_Click(object sender, RoutedEventArgs e)
+    {
+        RenderCredentialProbeStatus();
+        AccountOverlay.Visibility = Visibility.Visible;
+    }
     private void CloseAccount_Click(object sender, RoutedEventArgs e) => AccountOverlay.Visibility = Visibility.Collapsed;
+
+    private void CredentialProbe_ResultChanged(object? sender, PlatformCredentialProbeResult result)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            _secureStore.Save("credential-probe-results", _credentialProbe.Results.Values.ToList());
+            RenderCredentialProbeStatus();
+        });
+    }
+
+    private async Task<PlatformCredentialProbeResult> RunCredentialProbeAsync(string platform, CredentialProbeMode mode)
+    {
+        var previous = _credentialProbe.Results.GetValueOrDefault(platform);
+        RenderCredentialChecking(platform);
+        var result = await _credentialProbe.RunAsync(platform, mode);
+        System.Diagnostics.Debug.WriteLine(
+            $"CredentialProbe platform={platform} status={result.Status} quality={result.Quality ?? "none"} vkey={result.VkeyCode?.ToString() ?? "none"} http={result.HttpStatus?.ToString() ?? "none"}");
+        if (result.Status == CredentialProbeStatus.Valid) _validatedPlatforms.Add(platform);
+        else if (result.Status is CredentialProbeStatus.Invalid or CredentialProbeStatus.PlaybackLimited) _validatedPlatforms.Remove(platform);
+        RenderCredentialProbeStatus();
+        if (mode == CredentialProbeMode.Automatic && previous?.Status == CredentialProbeStatus.Valid &&
+            result.Status is CredentialProbeStatus.Invalid or CredentialProbeStatus.PlaybackLimited)
+        {
+            ShowCredentialBanner(platform, result.Status);
+        }
+        return result;
+    }
+
+    private async Task RunAutomaticProbesAsync()
+    {
+        if (!_automaticProbeEnabled) return;
+        foreach (var platform in new[] { "qq", "netease" })
+        {
+            var credentials = platform == "qq" ? _platformCredentials.Qq : _platformCredentials.Netease;
+            if (credentials is null || !PlatformCredentialPolicy.LooksUsable(platform, credentials) || !_credentialProbe.IsDue(platform)) continue;
+            await RunCredentialProbeAsync(platform, CredentialProbeMode.Automatic);
+        }
+    }
+
+    private async void ProbeQq_Click(object sender, RoutedEventArgs e) => await RunCredentialProbeAsync("qq", CredentialProbeMode.Manual);
+    private async void ProbeNetease_Click(object sender, RoutedEventArgs e) => await RunCredentialProbeAsync("netease", CredentialProbeMode.Manual);
+    private async void ProbeAll_Click(object sender, RoutedEventArgs e)
+    {
+        await RunCredentialProbeAsync("qq", CredentialProbeMode.Manual);
+        await RunCredentialProbeAsync("netease", CredentialProbeMode.Manual);
+    }
+
+    private void AutomaticProbeToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        _automaticProbeEnabled = AutomaticProbeToggle.IsOn;
+        _secureStore.Save("credential-probe-automatic", _automaticProbeEnabled);
+        if (_automaticProbeEnabled) _ = RunAutomaticProbesAsync();
+    }
+
+    private void RenderCredentialChecking(string platform)
+    {
+        var text = platform == "qq" ? QqProbeStatus : NeteaseProbeStatus;
+        text.Text = "检测中…";
+    }
+
+    private void RenderCredentialProbeStatus()
+    {
+        if (QqProbeStatus is null || NeteaseProbeStatus is null) return;
+        QqProbeStatus.Text = CredentialStatusText("qq", _platformCredentials.Qq);
+        NeteaseProbeStatus.Text = CredentialStatusText("netease", _platformCredentials.Netease);
+        CredentialAttentionDot.Visibility = _credentialProbe.Results.Values.Any(result => result.Status is CredentialProbeStatus.Invalid or CredentialProbeStatus.PlaybackLimited)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private string CredentialStatusText(string platform, IReadOnlyDictionary<string, string>? credentials)
+    {
+        if (credentials is null || !PlatformCredentialPolicy.LooksUsable(platform, credentials)) return "未授权";
+        if (!_credentialProbe.Results.TryGetValue(platform, out var result)) return "未检测";
+        var status = result.Status switch
+        {
+            CredentialProbeStatus.Valid => "有效",
+            CredentialProbeStatus.PlaybackLimited => "播放权限受限",
+            CredentialProbeStatus.Invalid => "已失效",
+            CredentialProbeStatus.NetworkError => "网络异常",
+            CredentialProbeStatus.Checking => "检测中",
+            CredentialProbeStatus.NotAuthorized => "未授权",
+            _ => "未检测"
+        };
+        var membership = string.IsNullOrWhiteSpace(result.Membership) ? string.Empty : $" · {result.Membership}";
+        return $"{status}{membership}\n上次验证 {result.CheckedAt.LocalDateTime:g} · 下次检测 {result.NextCheckAt.LocalDateTime:g}";
+    }
+
+    private void ShowCredentialBanner(string platform, CredentialProbeStatus status)
+    {
+        _bannerKind = BannerKind.Credential;
+        TopBannerTitle.Text = platform == "qq" ? "QQ 音乐授权需要处理" : "网易云音乐授权需要处理";
+        TopBannerMessage.Text = status == CredentialProbeStatus.Invalid ? "凭证已失效，请重新授权。" : "登录有效，但会员播放权限未通过验证。";
+        TopBannerPrimary.Content = "重新授权";
+        TopBannerLater.Content = "关闭";
+        TopBannerLater.Visibility = Visibility.Visible;
+        TopBannerIgnore.Visibility = Visibility.Collapsed;
+        TopBanner.Visibility = Visibility.Visible;
+    }
+
+    private async Task RunAutomaticMaintenanceAsync()
+    {
+        await RunAutomaticProbesAsync();
+        await CheckForUpdatesAsync(false);
+    }
+
+    private void AutomaticUpdateToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        _updateState = _updateState with { AutomaticEnabled = AutomaticUpdateToggle.IsOn };
+        SaveUpdateState();
+        if (_updateState.AutomaticEnabled) _ = CheckForUpdatesAsync(false);
+    }
+
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(true);
+
+    private async Task CheckForUpdatesAsync(bool manual)
+    {
+        if (!manual && !_updateState.AutomaticEnabled) return;
+        if (_updateCheckInFlight) return;
+        var now = DateTimeOffset.UtcNow;
+        if (!manual && _updateState.LastCheckedAt is { } last && now - last < TimeSpan.FromHours(24)) return;
+        _updateCheckInFlight = true;
+        if (manual) UpdateStatus.Text = "正在检查更新…";
+        try
+        {
+            var response = await _updateService.CheckAsync(_updateState.ETag);
+            var release = response.NotModified ? _updateState.CachedRelease : response.Release;
+            _updateState = _updateState with { LastCheckedAt = now, ETag = response.ETag, CachedRelease = release ?? _updateState.CachedRelease };
+            SaveUpdateState();
+            if (release is null || !ApplicationUpdateService.IsNewer(release.Version, CurrentVersion))
+            {
+                if (manual) UpdateStatus.Text = $"当前已是最新版本 {CurrentVersion}";
+                return;
+            }
+            UpdateStatus.Text = $"发现新版本 {release.Version} · {release.PublishedAt.LocalDateTime:d}";
+            if (!manual && (_updateState.IgnoredVersion == release.Version ||
+                (_updateState.LastPromptedVersion == release.Version && !_updateState.RemindLater))) return;
+            _updateState = _updateState with { LastPromptedVersion = release.Version, RemindLater = false };
+            SaveUpdateState();
+            ShowUpdateBanner(release);
+        }
+        catch (Exception)
+        {
+            if (manual) UpdateStatus.Text = "检查失败，请确认网络后重试";
+        }
+        finally
+        {
+            _updateCheckInFlight = false;
+        }
+    }
+
+    private void ShowUpdateBanner(ApplicationRelease release)
+    {
+        _bannerKind = BannerKind.Update;
+        _pendingRelease = release;
+        TopBannerTitle.Text = $"Beans Music {release.Version} 可更新";
+        TopBannerMessage.Text = string.IsNullOrWhiteSpace(release.Notes) ? $"发布于 {release.PublishedAt.LocalDateTime:g}" : release.Notes.Split('\n').FirstOrDefault(line => !string.IsNullOrWhiteSpace(line)) ?? "查看本次更新内容";
+        TopBannerPrimary.Content = "查看更新";
+        TopBannerLater.Content = "稍后提醒";
+        TopBannerLater.Visibility = Visibility.Visible;
+        TopBannerIgnore.Content = "忽略此版本";
+        TopBannerIgnore.Visibility = Visibility.Visible;
+        TopBanner.Visibility = Visibility.Visible;
+    }
+
+    private async void TopBannerPrimary_Click(object sender, RoutedEventArgs e)
+    {
+        if (_bannerKind == BannerKind.Credential)
+        {
+            TopBanner.Visibility = Visibility.Collapsed;
+            AccountOverlay.Visibility = Visibility.Visible;
+            return;
+        }
+        if (_pendingRelease is null) return;
+        var asset = ApplicationUpdateService.SelectWindowsAsset(_pendingRelease, RuntimeInformation.ProcessArchitecture);
+        await Launcher.LaunchUriAsync(asset?.DownloadUrl ?? _pendingRelease.PageUrl);
+        TopBanner.Visibility = Visibility.Collapsed;
+    }
+
+    private void TopBannerLater_Click(object sender, RoutedEventArgs e)
+    {
+        if (_bannerKind == BannerKind.Update)
+        {
+            _updateState = _updateState with { RemindLater = true };
+            SaveUpdateState();
+        }
+        TopBanner.Visibility = Visibility.Collapsed;
+    }
+
+    private void TopBannerIgnore_Click(object sender, RoutedEventArgs e)
+    {
+        if (_bannerKind == BannerKind.Update && _pendingRelease is not null)
+        {
+            _updateState = _updateState with { IgnoredVersion = _pendingRelease.Version, RemindLater = false };
+            SaveUpdateState();
+        }
+        TopBanner.Visibility = Visibility.Collapsed;
+    }
+
+    private void SaveUpdateState() => _secureStore.Save("update-notifications", _updateState);
+
+    private static string CurrentVersion
+    {
+        get
+        {
+            try
+            {
+                var version = Package.Current.Id.Version;
+                return $"{version.Major}.{version.Minor}.{version.Build}";
+            }
+            catch
+            {
+                return typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+            }
+        }
+    }
 
     private void Navigation_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
@@ -265,6 +566,7 @@ public sealed partial class MainWindow : Window
         updater.MusicProperties.Artist = "本地音乐";
         updater.Update();
         _mediaPlayer.Play();
+        await _spectrumAnalyzer.StartAsync(Path.GetFullPath(track.Path));
         _ = LoadLyricsAsync(track);
         await _insights.RecordPlayAsync(track);
         await RefreshMusicUniverseAsync();
@@ -278,8 +580,16 @@ public sealed partial class MainWindow : Window
     private void ToggleUniversePlayback_Click(object sender, RoutedEventArgs e)
     {
         if (_currentLocalTrack is null) { OpenLocalFromProfile_Click(sender, e); return; }
-        if (_mediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing) _mediaPlayer.Pause();
-        else _mediaPlayer.Play();
+        if (_mediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
+        {
+            _mediaPlayer.Pause();
+            _spectrumAnalyzer.Pause();
+        }
+        else
+        {
+            _mediaPlayer.Play();
+            _spectrumAnalyzer.Resume();
+        }
     }
 
     private async void FavoriteCurrent_Click(object sender, RoutedEventArgs e)
@@ -341,6 +651,7 @@ public sealed partial class MainWindow : Window
     private async Task LoadLyricsAsync(LocalMusicTrack track)
     {
         LyricsList.Items.Clear();
+        _karaokeLines.Clear();
         _lyrics = [];
         _currentLyricIndex = -1;
         var path = Path.ChangeExtension(track.Path, ".lrc");
@@ -352,8 +663,8 @@ public sealed partial class MainWindow : Window
         try
         {
             _lyrics = LrcParser.Parse(await File.ReadAllTextAsync(path));
-            foreach (var line in _lyrics)
-                LyricsList.Items.Add(new ListViewItem { Content = $"{line.Time:mm\\:ss}  {line.Text}", Tag = line });
+            for (var index = 0; index < _lyrics.Count; index++)
+                LyricsList.Items.Add(CreateLyricItem(_lyrics[index], index));
             LyricsStatus.Text = _lyrics.Count == 0 ? "歌词文件为空" : $"已加载 {_lyrics.Count} 行歌词";
         }
         catch (Exception ex) { LyricsStatus.Text = $"歌词读取失败：{ex.Message}"; }
@@ -362,7 +673,7 @@ public sealed partial class MainWindow : Window
     private void UpdateCurrentLyric()
     {
         if (_lyrics.Count == 0) return;
-        var position = _mediaPlayer.PlaybackSession.Position;
+        var position = _mediaPlayer.PlaybackSession.Position + TimeSpan.FromSeconds(_playerSettings.LyricOffsetSeconds);
         var low = 0;
         var high = _lyrics.Count - 1;
         var result = -1;
@@ -372,11 +683,106 @@ public sealed partial class MainWindow : Window
             if (_lyrics[middle].Time <= position) { result = middle; low = middle + 1; }
             else high = middle - 1;
         }
-        if (result < 0 || result == _currentLyricIndex) return;
-        _currentLyricIndex = result;
-        LyricsList.SelectedIndex = result;
-        LyricsList.ScrollIntoView(LyricsList.Items[result], ScrollIntoViewAlignment.Leading);
-        LyricsStatus.Text = _lyrics[result].Text;
+        if (result < 0) return;
+        if (result != _currentLyricIndex)
+        {
+            _currentLyricIndex = result;
+            LyricsList.SelectedIndex = result;
+            LyricsList.ScrollIntoView(LyricsList.Items[result], ScrollIntoViewAlignment.Leading);
+            LyricsStatus.Text = _lyrics[result].Text;
+        }
+        ApplyLyricHighlight(result, position);
+    }
+
+    private ListViewItem CreateLyricItem(LyricLine line, int index)
+    {
+        var translation = _playerSettings.LyricTranslation && !string.IsNullOrWhiteSpace(line.Translation)
+            ? $"\n{line.Translation}"
+            : string.Empty;
+        var text = $"{line.Time:mm\\:ss}  {line.Text}{translation}";
+        var alignment = _playerSettings.LyricAlignment == "center" ? TextAlignment.Center : TextAlignment.Left;
+        var item = new ListViewItem
+        {
+            Tag = line,
+            Padding = new Thickness(4, _playerSettings.LyricLineSpacing / 2, 4, _playerSettings.LyricLineSpacing / 2),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch
+        };
+        if (_playerSettings.LyricStyle != "karaoke")
+        {
+            item.Content = new TextBlock
+            {
+                Text = text,
+                FontSize = _playerSettings.LyricFontSize,
+                TextWrapping = TextWrapping.Wrap,
+                TextAlignment = alignment,
+                FontStyle = _playerSettings.LyricItalic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal,
+                Foreground = BrushResource("BeansMutedBrush")
+            };
+            return item;
+        }
+
+        var grid = new Grid();
+        var baseLine = new TextBlock
+        {
+            Text = text,
+            FontSize = _playerSettings.LyricFontSize,
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = alignment,
+            FontStyle = _playerSettings.LyricItalic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal,
+            Foreground = BrushResource("BeansMutedBrush")
+        };
+        var clip = new RectangleGeometry { Rect = new Rect(0, 0, 0, 0) };
+        var overlay = new TextBlock
+        {
+            Text = text,
+            FontSize = _playerSettings.LyricFontSize,
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = alignment,
+            FontStyle = _playerSettings.LyricItalic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal,
+            Foreground = LyricHighlightBrush(),
+            Clip = clip
+        };
+        grid.Children.Add(baseLine);
+        grid.Children.Add(overlay);
+        item.Content = grid;
+        _karaokeLines[index] = (overlay, clip);
+        return item;
+    }
+
+    private void ApplyLyricHighlight(int current, TimeSpan position)
+    {
+        for (var index = 0; index < LyricsList.Items.Count; index++)
+        {
+            if (LyricsList.Items[index] is not ListViewItem item) continue;
+            item.Background = _playerSettings.LyricStyle == "contrast" && index == current
+                ? new SolidColorBrush(Windows.UI.Color.FromArgb(220, 0, 0, 0))
+                : new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+            item.Opacity = index == current ? 1 : 0.62;
+            if (_playerSettings.LyricBlur && index != current) item.Opacity = 0.38;
+            if (item.Content is TextBlock text)
+            {
+                text.Foreground = index == current
+                    ? (_playerSettings.LyricStyle == "contrast" ? new SolidColorBrush(Windows.UI.Colors.White) : LyricHighlightBrush())
+                    : BrushResource("BeansMutedBrush");
+            }
+        }
+
+        if (_playerSettings.LyricStyle != "karaoke" || !_karaokeLines.TryGetValue(current, out var karaoke)) return;
+        var nextTime = current + 1 < _lyrics.Count ? _lyrics[current + 1].Time : _lyrics[current].Time.Add(TimeSpan.FromSeconds(4));
+        var duration = Math.Max(0.1, (nextTime - _lyrics[current].Time).TotalSeconds);
+        var progress = Math.Clamp((position - _lyrics[current].Time).TotalSeconds / duration, 0, 1);
+        var width = Math.Max(karaoke.Overlay.ActualWidth, LyricsList.ActualWidth - 20);
+        karaoke.Clip.Rect = new Rect(0, 0, width * progress, Math.Max(1, karaoke.Overlay.ActualHeight));
+    }
+
+    private Brush BrushResource(string key) => (Brush)Application.Current.Resources[key];
+
+    private Brush LyricHighlightBrush()
+    {
+        var value = _playerSettings.LyricColor.TrimStart('#');
+        if (uint.TryParse(value, System.Globalization.NumberStyles.HexNumber, null, out var rgb))
+            return new SolidColorBrush(Windows.UI.Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+        return BrushResource("BeansPrimaryBrush");
     }
 
     private async void ThemePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -439,6 +845,265 @@ public sealed partial class MainWindow : Window
     }
 
     private void ResetFontScale_Click(object sender, RoutedEventArgs e) => Typography.Reset();
+
+    private void ApplyExperienceSettings()
+    {
+        _applyingExperienceSettings = true;
+        PlayerEffectPicker.SelectedItem = PlayerEffectPicker.Items.OfType<ComboBoxItem>().FirstOrDefault(item => item.Tag?.ToString() == _playerSettings.EffectMode) ?? PlayerEffectPicker.Items[1];
+        PlayerEffectIntensitySlider.Value = Math.Clamp(_playerSettings.EffectIntensity, 0.25, 1);
+        var customStyle = LyricStylePicker.Items.OfType<ComboBoxItem>().First(item => item.Tag?.ToString() == "custom");
+        customStyle.Visibility = _playerSettings.LyricStyle == "custom" ? Visibility.Visible : Visibility.Collapsed;
+        LyricStylePicker.SelectedItem = LyricStylePicker.Items.OfType<ComboBoxItem>().FirstOrDefault(item => item.Tag?.ToString() == _playerSettings.LyricStyle) ?? LyricStylePicker.Items[1];
+        LyricFontSizeSlider.Value = Math.Clamp(_playerSettings.LyricFontSize, 12, 40);
+        LyricLineSpacingSlider.Value = Math.Clamp(_playerSettings.LyricLineSpacing, 0, 20);
+        LyricTranslationToggle.IsOn = _playerSettings.LyricTranslation;
+        LyricAlignmentPicker.SelectedItem = LyricAlignmentPicker.Items.OfType<ComboBoxItem>().FirstOrDefault(item => item.Tag?.ToString() == _playerSettings.LyricAlignment) ?? LyricAlignmentPicker.Items[1];
+        LyricColorPicker.Color = ((SolidColorBrush)LyricHighlightBrush()).Color;
+        LyricGlowToggle.IsOn = _playerSettings.LyricGlow;
+        LyricBlurToggle.IsOn = _playerSettings.LyricBlur;
+        LyricItalicToggle.IsOn = _playerSettings.LyricItalic;
+        LyricBackgroundPicker.SelectedItem = LyricBackgroundPicker.Items.OfType<ComboBoxItem>().FirstOrDefault(item => item.Tag?.ToString() == _playerSettings.LyricBackground) ?? LyricBackgroundPicker.Items[1];
+        LyricOffsetBox.Value = Math.Clamp(_playerSettings.LyricOffsetSeconds, -5, 5);
+        PlayerEffectIntensityText.Text = $"{PlayerEffectIntensitySlider.Value:P0}";
+        LyricFontSizeText.Text = $"{LyricFontSizeSlider.Value:0} pt";
+        _applyingExperienceSettings = false;
+        ApplyLyricBackground();
+        RenderPlayerEffect();
+    }
+
+    private void PlayerEffectPicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_applyingExperienceSettings || PlayerEffectPicker.SelectedItem is not ComboBoxItem item) return;
+        _playerSettings = _playerSettings with { EffectMode = item.Tag?.ToString() ?? "flow" };
+        SaveExperienceSettings();
+        UpdateVisualTimerState();
+    }
+
+    private void PlayerEffectIntensity_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (PlayerEffectIntensityText is not null) PlayerEffectIntensityText.Text = $"{e.NewValue:P0}";
+        if (_applyingExperienceSettings) return;
+        _playerSettings = _playerSettings with { EffectIntensity = Math.Clamp(e.NewValue, 0.25, 1) };
+        SaveExperienceSettings();
+    }
+
+    private void LyricStylePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_applyingExperienceSettings || LyricStylePicker.SelectedItem is not ComboBoxItem item) return;
+        var style = item.Tag?.ToString() ?? "flow";
+        if (style == "custom") return;
+        _playerSettings = style switch
+        {
+            "minimal" => _playerSettings with { LyricStyle = style, LyricLineSpacing = 4, LyricGlow = false, LyricBlur = false, LyricItalic = false, LyricBackground = "clear" },
+            "karaoke" => _playerSettings with { LyricStyle = style, LyricLineSpacing = 10, LyricGlow = true, LyricBlur = false, LyricItalic = false, LyricBackground = "soft" },
+            "contrast" => _playerSettings with { LyricStyle = style, LyricLineSpacing = 12, LyricGlow = false, LyricBlur = false, LyricItalic = false, LyricBackground = "contrast" },
+            _ => _playerSettings with { LyricStyle = "flow", LyricLineSpacing = 8, LyricGlow = true, LyricBlur = false, LyricItalic = false, LyricBackground = "soft" }
+        };
+        _applyingExperienceSettings = true;
+        LyricLineSpacingSlider.Value = _playerSettings.LyricLineSpacing;
+        LyricGlowToggle.IsOn = _playerSettings.LyricGlow;
+        LyricBlurToggle.IsOn = _playerSettings.LyricBlur;
+        LyricItalicToggle.IsOn = _playerSettings.LyricItalic;
+        LyricBackgroundPicker.SelectedItem = LyricBackgroundPicker.Items.OfType<ComboBoxItem>().FirstOrDefault(value => value.Tag?.ToString() == _playerSettings.LyricBackground);
+        _applyingExperienceSettings = false;
+        ApplyLyricBackground();
+        SaveExperienceSettings();
+        RebuildLyrics();
+    }
+
+    private void LyricSetting_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (LyricFontSizeText is not null) LyricFontSizeText.Text = $"{LyricFontSizeSlider.Value:0} pt";
+        if (_applyingExperienceSettings || LyricFontSizeSlider is null || LyricLineSpacingSlider is null) return;
+        _playerSettings = _playerSettings with
+        {
+            LyricFontSize = Math.Clamp(LyricFontSizeSlider.Value, 12, 40),
+            LyricLineSpacing = Math.Clamp(LyricLineSpacingSlider.Value, 0, 20)
+        };
+        SaveExperienceSettings();
+        RebuildLyrics();
+    }
+
+    private void LyricSetting_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_applyingExperienceSettings) return;
+        _playerSettings = _playerSettings with { LyricTranslation = LyricTranslationToggle.IsOn };
+        SaveExperienceSettings();
+        RebuildLyrics();
+    }
+
+    private void LyricSetting_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_applyingExperienceSettings || LyricAlignmentPicker.SelectedItem is not ComboBoxItem item) return;
+        _playerSettings = _playerSettings with { LyricAlignment = item.Tag?.ToString() ?? "center" };
+        SaveExperienceSettings();
+        RebuildLyrics();
+    }
+
+    private void LyricAdvancedColor_Changed(ColorPicker sender, ColorChangedEventArgs args)
+    {
+        if (_applyingExperienceSettings) return;
+        _playerSettings = _playerSettings with { LyricColor = $"#{args.NewColor.R:X2}{args.NewColor.G:X2}{args.NewColor.B:X2}" };
+        MarkLyricsCustomAndSave();
+    }
+
+    private void LyricAdvanced_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_applyingExperienceSettings) return;
+        _playerSettings = _playerSettings with { LyricGlow = LyricGlowToggle.IsOn, LyricBlur = LyricBlurToggle.IsOn, LyricItalic = LyricItalicToggle.IsOn };
+        MarkLyricsCustomAndSave();
+    }
+
+    private void LyricAdvanced_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_applyingExperienceSettings || LyricBackgroundPicker.SelectedItem is not ComboBoxItem item) return;
+        _playerSettings = _playerSettings with { LyricBackground = item.Tag?.ToString() ?? "soft" };
+        MarkLyricsCustomAndSave();
+    }
+
+    private void LyricAdvancedOffset_Changed(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    {
+        if (_applyingExperienceSettings || double.IsNaN(args.NewValue)) return;
+        _playerSettings = _playerSettings with { LyricOffsetSeconds = Math.Clamp(args.NewValue, -5, 5) };
+        MarkLyricsCustomAndSave();
+    }
+
+    private void MarkLyricsCustomAndSave()
+    {
+        _playerSettings = _playerSettings with { LyricStyle = "custom" };
+        _applyingExperienceSettings = true;
+        var custom = LyricStylePicker.Items.OfType<ComboBoxItem>().First(item => item.Tag?.ToString() == "custom");
+        custom.Visibility = Visibility.Visible;
+        LyricStylePicker.SelectedItem = custom;
+        _applyingExperienceSettings = false;
+        ApplyLyricBackground();
+        SaveExperienceSettings();
+        RebuildLyrics();
+    }
+
+    private void ApplyLyricBackground()
+    {
+        LyricsList.Background = _playerSettings.LyricBackground switch
+        {
+            "contrast" => new SolidColorBrush(Windows.UI.Color.FromArgb(205, 0, 0, 0)),
+            "soft" => new SolidColorBrush(Windows.UI.Color.FromArgb(70, 0, 0, 0)),
+            _ => new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0))
+        };
+    }
+
+    private void RebuildLyrics()
+    {
+        if (_lyrics.Count == 0) return;
+        LyricsList.Items.Clear();
+        _karaokeLines.Clear();
+        for (var index = 0; index < _lyrics.Count; index++) LyricsList.Items.Add(CreateLyricItem(_lyrics[index], index));
+        _currentLyricIndex = -1;
+        UpdateCurrentLyric();
+    }
+
+    private void SaveExperienceSettings()
+    {
+        _secureStore.Save("player-experience", _playerSettings);
+        QueueExperienceSync();
+    }
+
+    private void QueueExperienceSync()
+    {
+        _experienceSyncDebounce?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _experienceSyncDebounce = cancellation;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(700, cancellation.Token);
+                if (_sync is null) return;
+                await _sync.EnqueueAsync("preference", "platforms", PlayerPreferencePayload(), ct: cancellation.Token);
+                await _sync.SyncAsync(cancellation.Token);
+            }
+            catch (OperationCanceledException) { }
+        });
+    }
+
+    private PlatformPreferencePayload PlayerPreferencePayload() => new(
+        ["网易云", "QQ音乐"],
+        _playerSettings.EffectMode,
+        _playerSettings.EffectIntensity,
+        _playerSettings.LyricStyle,
+        _playerSettings.LyricFontSize,
+        _playerSettings.LyricLineSpacing,
+        _playerSettings.LyricTranslation,
+        _playerSettings.LyricAlignment);
+
+    private void UpdateVisualTimerState()
+    {
+        var playing = _mediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+        if (playing && _animationsEnabled && _playerSettings.EffectMode != "quiet")
+        {
+            _visualTimer.Interval = TimeSpan.FromMilliseconds(Windows.System.Power.PowerManager.EnergySaverStatus == Windows.System.Power.EnergySaverStatus.On ? 50 : 33);
+            _visualTimer.Start();
+        }
+        else
+        {
+            _visualTimer.Stop();
+            RenderPlayerEffect();
+        }
+    }
+
+    private void RenderPlayerEffect()
+    {
+        if (PlayerEffectCanvas is null) return;
+        PlayerEffectCanvas.Children.Clear();
+        var mode = _playerSettings.EffectMode;
+        if (mode == "quiet") return;
+        var width = Math.Max(320, PlayerEffectCanvas.ActualWidth);
+        var height = Math.Max(60, PlayerEffectCanvas.ActualHeight);
+        var playing = _mediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+        var time = playing && _animationsEnabled ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0 : 0.35;
+        var primary = BrushResource("BeansPrimaryBrush");
+        var secondary = BrushResource("BeansSecondaryBrush");
+        var intensity = _playerSettings.EffectIntensity;
+
+        if (mode == "spectrum")
+        {
+            for (var index = 0; index < 24; index++)
+            {
+                var value = _spectrumValues.Length > index && _spectrumValues[index] > 0.01
+                    ? _spectrumValues[index]
+                    : 0.18 + 0.55 * Math.Abs(Math.Sin(time * (1.5 + index % 4 * 0.13) + index * 0.65));
+                var barHeight = Math.Max(3, height * 0.58 * value * intensity);
+                var bar = new Rectangle { Width = 5, Height = barHeight, RadiusX = 2.5, RadiusY = 2.5, Fill = index % 3 == 0 ? secondary : primary, Opacity = 0.45 };
+                Canvas.SetLeft(bar, width * 0.28 + index * Math.Max(7, width * 0.44 / 24));
+                Canvas.SetTop(bar, height - barHeight);
+                PlayerEffectCanvas.Children.Add(bar);
+            }
+            return;
+        }
+
+        if (mode == "vinyl")
+        {
+            for (var index = 0; index < 6; index++)
+            {
+                var size = 24 + index * 10;
+                var ring = new Ellipse { Width = size, Height = size, Stroke = index % 2 == 0 ? primary : secondary, StrokeThickness = 1, Opacity = 0.08 + intensity * 0.08 };
+                Canvas.SetLeft(ring, 28 - size / 2);
+                Canvas.SetTop(ring, height / 2 - size / 2);
+                PlayerEffectCanvas.Children.Add(ring);
+            }
+            return;
+        }
+
+        var count = mode == "stardust" ? 18 : 4;
+        for (var index = 0; index < count; index++)
+        {
+            var phase = (time * (mode == "stardust" ? 0.12 : 0.04) + index * 0.17) % 1;
+            var size = mode == "stardust" ? 2 + index % 4 : 28 + index * 22;
+            var particle = new Ellipse { Width = size, Height = size, Fill = index % 2 == 0 ? primary : secondary, Opacity = (mode == "stardust" ? 0.12 : 0.05) * intensity };
+            Canvas.SetLeft(particle, mode == "stardust" ? phase * width : width * (0.3 + index * 0.12) - size / 2);
+            Canvas.SetTop(particle, mode == "stardust" ? (index * 29 % (int)height) : height / 2 - size / 2);
+            PlayerEffectCanvas.Children.Add(particle);
+        }
+    }
 
     private async void Register_Click(object sender, RoutedEventArgs e)
     {
@@ -671,6 +1336,8 @@ public sealed partial class MainWindow : Window
         _secureStore.Save("platform-credentials", _platformCredentials);
         await UploadVaultAsync();
         _validatedPlatforms.Add(provider);
+        _credentialProbe.Clear(provider);
+        await RunCredentialProbeAsync(provider, CredentialProbeMode.Manual);
         await SavePlatformMirrorAsync(provider, platform.Playlists);
         AccountStatus.Text = _session is null
             ? $"{title}已验证：{platform.Profile.Nickname} · 授权已安全保存在本机"
@@ -764,7 +1431,7 @@ public sealed partial class MainWindow : Window
             {
                 var currentTheme = (ThemePicker.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "aurora";
                 await _sync.EnqueueAsync("theme", "current", ThemePayloadFor(currentTheme));
-                await _sync.EnqueueAsync("preference", "platforms", new PlatformPreferencePayload(["网易云", "QQ音乐"]));
+                await _sync.EnqueueAsync("preference", "platforms", PlayerPreferencePayload());
             }
             await _syncStore.MarkSeededAsync(_session.Account.Id);
         }
@@ -783,50 +1450,58 @@ public sealed partial class MainWindow : Window
                 _applyingRemoteTheme = false;
             }
         }
+        var remotePlayer = await _sync.ReadAsync<PlatformPreferencePayload>("preference", "platforms")
+            ?? await _sync.ReadAsync<PlatformPreferencePayload>("preference", "player");
+        if (remotePlayer is not null)
+        {
+            _playerSettings = _playerSettings with
+            {
+                EffectMode = remotePlayer.PlayerEffectMode is "quiet" or "flow" or "stardust" or "spectrum" or "vinyl" ? remotePlayer.PlayerEffectMode : _playerSettings.EffectMode,
+                EffectIntensity = Math.Clamp(remotePlayer.PlayerEffectIntensity ?? _playerSettings.EffectIntensity, 0.25, 1),
+                LyricStyle = remotePlayer.LyricStylePreset is "minimal" or "flow" or "karaoke" or "contrast" or "custom" ? remotePlayer.LyricStylePreset : _playerSettings.LyricStyle,
+                LyricFontSize = Math.Clamp(remotePlayer.LyricFontSize ?? _playerSettings.LyricFontSize, 12, 40),
+                LyricLineSpacing = Math.Clamp(remotePlayer.LyricLineSpacing ?? _playerSettings.LyricLineSpacing, 0, 20),
+                LyricTranslation = remotePlayer.LyricTranslation ?? _playerSettings.LyricTranslation,
+                LyricAlignment = remotePlayer.LyricAlignment is "leading" or "center" ? remotePlayer.LyricAlignment : _playerSettings.LyricAlignment
+            };
+            _secureStore.Save("player-experience", _playerSettings);
+            ApplyExperienceSettings();
+            RebuildLyrics();
+        }
     }
 
     private async Task<bool> ValidateRestoredPlatformsAsync()
     {
-        var changed = false;
         var messages = new List<string>();
         if (_platformCredentials.Qq is { } qq)
         {
-            try
-            {
-                var result = await _platformClient.ValidateAndLoadAsync("qq", qq);
-                _validatedPlatforms.Add("qq");
-                await SavePlatformMirrorAsync("qq", result.Playlists);
-            }
-            catch (UnauthorizedAccessException)
-            {
-                _platformCredentials = _platformCredentials with { Qq = null, UpdatedAt = DateTimeOffset.UtcNow };
-                _validatedPlatforms.Remove("qq");
-                changed = true;
+            var probe = await RunCredentialProbeAsync("qq", CredentialProbeMode.Automatic);
+            if (probe.Status == CredentialProbeStatus.Valid)
+                try
+                {
+                    var result = await _platformClient.ValidateAndLoadAsync("qq", qq);
+                    await SavePlatformMirrorAsync("qq", result.Playlists);
+                }
+                catch (Exception) { messages.Add("QQ 音乐歌单暂时无法刷新"); }
+            else if (probe.Status is CredentialProbeStatus.Invalid or CredentialProbeStatus.PlaybackLimited)
                 messages.Add("QQ 音乐需要重新授权");
-            }
-            catch (Exception) { messages.Add("QQ 音乐暂时无法验证，稍后重试"); }
+            else if (probe.Status == CredentialProbeStatus.NetworkError)
+                messages.Add("QQ 音乐暂时无法验证，稍后重试");
         }
         if (_platformCredentials.Netease is { } netease)
         {
-            try
-            {
-                var result = await _platformClient.ValidateAndLoadAsync("netease", netease);
-                _validatedPlatforms.Add("netease");
-                await SavePlatformMirrorAsync("netease", result.Playlists);
-            }
-            catch (UnauthorizedAccessException)
-            {
-                _platformCredentials = _platformCredentials with { Netease = null, UpdatedAt = DateTimeOffset.UtcNow };
-                _validatedPlatforms.Remove("netease");
-                changed = true;
+            var probe = await RunCredentialProbeAsync("netease", CredentialProbeMode.Automatic);
+            if (probe.Status == CredentialProbeStatus.Valid)
+                try
+                {
+                    var result = await _platformClient.ValidateAndLoadAsync("netease", netease);
+                    await SavePlatformMirrorAsync("netease", result.Playlists);
+                }
+                catch (Exception) { messages.Add("网易云音乐歌单暂时无法刷新"); }
+            else if (probe.Status == CredentialProbeStatus.Invalid)
                 messages.Add("网易云音乐需要重新授权");
-            }
-            catch (Exception) { messages.Add("网易云音乐暂时无法验证，稍后重试"); }
-        }
-        if (changed)
-        {
-            _secureStore.Save("platform-credentials", _platformCredentials);
-            await UploadVaultAsync();
+            else if (probe.Status == CredentialProbeStatus.NetworkError)
+                messages.Add("网易云音乐暂时无法验证，稍后重试");
         }
         if (messages.Count > 0) AccountStatus.Text = string.Join("；", messages);
         return messages.Count > 0;

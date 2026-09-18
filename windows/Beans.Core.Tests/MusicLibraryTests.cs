@@ -14,4 +14,13 @@ public sealed class MusicLibraryTests
         Assert.Equal(TimeSpan.FromMilliseconds(1005), lines[0].Time);
         Assert.Equal(TimeSpan.FromMilliseconds(10500), lines[2].Time);
     }
+
+    [Fact]
+    public void LrcParserPairsTranslationAtSameTimestamp()
+    {
+        var lines = LrcParser.Parse("[00:03.00]晴天\n[00:03.00]Sunny day");
+        var line = Assert.Single(lines);
+        Assert.Equal("晴天", line.Text);
+        Assert.Equal("Sunny day", line.Translation);
+    }
 }

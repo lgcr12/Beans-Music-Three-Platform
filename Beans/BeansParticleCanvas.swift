@@ -6,6 +6,8 @@ struct BeansParticleCanvas: View {
     let secondary: Color
     var isPlaying: Bool = false
     var intensity: Double = 0.8
+    var pauseWhenIdle = false
+    var maxFramesPerSecond = 30.0
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("beans.particles.enabled") private var isEnabled = true
@@ -39,7 +41,10 @@ struct BeansParticleCanvas: View {
         if !isEnabled {
             Color.clear
         } else {
-            TimelineView(.animation(minimumInterval: reduceMotion ? 1.0 : 1.0 / 30.0, paused: reduceMotion)) { timeline in
+            TimelineView(.animation(
+                minimumInterval: reduceMotion ? 1.0 : 1.0 / maxFramesPerSecond,
+                paused: reduceMotion || (pauseWhenIdle && !isPlaying)
+            )) { timeline in
                 Canvas(opaque: false, colorMode: .extendedLinear, rendersAsynchronously: true) { context, size in
                     drawParticles(context: &context, size: size, time: timeline.date.timeIntervalSinceReferenceDate)
                 }

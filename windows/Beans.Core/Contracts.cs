@@ -71,7 +71,15 @@ public sealed record ThemePayload(
     string UiStyle,
     int? FontScalePercent = null);
 
-public sealed record PlatformPreferencePayload(IReadOnlyList<string> EnabledPlatforms);
+public sealed record PlatformPreferencePayload(
+    IReadOnlyList<string> EnabledPlatforms,
+    string? PlayerEffectMode = null,
+    double? PlayerEffectIntensity = null,
+    string? LyricStylePreset = null,
+    double? LyricFontSize = null,
+    double? LyricLineSpacing = null,
+    bool? LyricTranslation = null,
+    string? LyricAlignment = null);
 public sealed record PlatformMirrorPayload(string Platform, IReadOnlyList<MirrorPlaylist> Playlists, DateTimeOffset UpdatedAt);
 public sealed record MirrorPlaylist(long Id, string Name, Uri? CoverUrl, int TrackCount, string CreatorName, string Source);
 

@@ -17,6 +17,7 @@ struct PlayerView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var favorites: FavoritesStore
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Binding var isPresented: Bool
 
     @State private var lyrics: [LyricLine] = []
@@ -36,7 +37,7 @@ struct PlayerView: View {
     @State private var showArtistHome = false
     @State private var pickedArtistName = ""
     @State private var showArtistPicker = false
-    @AppStorage("beans.djVisual") private var djVisualEnabled = false
+    @AppStorage("beans.playerVisualMode") private var playerVisualModeRaw = PlayerVisualMode.migratedDefaultRawValue
     @AppStorage("beans.djVisualIntensity") private var djVisualIntensity = 0.8
     @State private var dominantColor: RGBColor?
     @Namespace private var coverNS
@@ -91,6 +92,7 @@ struct PlayerView: View {
     @AppStorage("beans.lyricTiltY") private var lyricTiltY = 0
     /// 歌词进度偏移（秒）：歌词与音频不同步时手动校正，正数提前、负数延后
     @AppStorage("beans.lyricOffset") private var lyricOffset = 0.0
+    @AppStorage("beans.lyricStylePreset") private var lyricStylePresetRaw = LyricStylePreset.flow.rawValue
     /// 歌词界面自定义背景
     @AppStorage("beans.lyricBackground.image") private var lyricBackgroundImagePath = ""
     @AppStorage("beans.lyricBackground.blur") private var lyricBackgroundBlur = 12.0
@@ -100,6 +102,7 @@ struct PlayerView: View {
     @State private var coverDrag: CGSize = .zero
     @State private var coverSwitchPulse = false
     @State private var animatedSongKey = ""
+    @State private var lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
 
     private var song: Song? { player.currentSong }
     private let rateOptions: [Double] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
@@ -159,7 +162,15 @@ struct PlayerView: View {
     }
 
     private var playerVisualsActive: Bool {
-        player.isPlaying && !showPlayerSettings
+        player.isPlaying && !showPlayerSettings && !accessibilityReduceMotion
+    }
+
+    private var playerVisualMode: PlayerVisualMode {
+        PlayerVisualMode(rawValue: playerVisualModeRaw) ?? .flow
+    }
+
+    private var lyricStylePreset: LyricStylePreset {
+        LyricStylePreset(rawValue: lyricStylePresetRaw) ?? .flow
     }
 
     /// 当前行歌词颜色（可自定义；配色模式关闭时自动跟随封面取色）
@@ -312,6 +323,9 @@ struct PlayerView: View {
                 lyricBackgroundImagePath = path
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in
+            lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
+        }
         .sheet(isPresented: $showQueue) { QueueView().environmentObject(player) }
         .sheet(isPresented: $showSleepTimer) { SleepTimerSheet().environmentObject(player) }
         .sheet(isPresented: $showAddToPlaylist) {
@@ -386,27 +400,16 @@ struct PlayerView: View {
                 CoverBlurBackground(url: song?.coverURL, scheme: colorScheme)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            AmbientGlowView(
+            PlayerVisualEffectsLayer(
+                mode: playerVisualMode,
                 accent: palette.accent,
                 secondary: palette.secondary,
                 isPlaying: playerVisualsActive,
-                breath: playerBreath
+                reduceMotion: accessibilityReduceMotion,
+                intensity: min(1, max(0, djVisualIntensity)),
+                spectrumLevels: player.hasLocalSpectrum ? player.localSpectrumLevels : nil,
+                framesPerSecond: lowPowerMode ? 20 : 30
             )
-            BeansParticleCanvas(
-                accent: palette.accent,
-                secondary: palette.secondary,
-                isPlaying: playerVisualsActive,
-                intensity: min(0.72, max(0.15, playerBreath))
-            )
-            .opacity(0.72)
-            if djVisualEnabled {
-                DJVisualView(
-                    accent: palette.accent,
-                    secondary: palette.secondary,
-                    isPlaying: playerVisualsActive,
-                    intensity: djVisualIntensity
-                )
-            }
             LinearGradient(
                 colors: colorScheme == .dark
                     ? [.black.opacity(0.22), .clear, .black.opacity(0.34)]
@@ -671,7 +674,7 @@ struct PlayerView: View {
                     CoverImage(url: song?.coverURL, size: size, cornerRadius: coverRadius, emptyHint: player.isBuffering ? "等待开始播放…" : nil)
                         .matchedGeometryEffect(id: "playerCover", in: coverNS)
                         .id(song?.identityKey ?? "empty-cover")
-                        .modifier(CoverSpin(enabled: circularCover && circularCoverSpin, isPlaying: playerVisualsActive))
+                        .modifier(CoverSpin(enabled: circularCover && circularCoverSpin, isPlaying: playerVisualsActive, framesPerSecond: lowPowerMode ? 20 : 30))
                         .overlay {
                             RoundedRectangle(cornerRadius: coverRadius, style: .continuous)
                                 .strokeBorder(.white.opacity(0.28), lineWidth: 1)
@@ -859,7 +862,7 @@ struct PlayerView: View {
                 } label: {
                     CoverImage(url: song?.coverURL, size: 48, cornerRadius: circularCover ? 24 : 12)
                         .matchedGeometryEffect(id: "playerCover", in: coverNS)
-                        .modifier(CoverSpin(enabled: circularCover && circularCoverSpin, isPlaying: playerVisualsActive))
+                        .modifier(CoverSpin(enabled: circularCover && circularCoverSpin, isPlaying: playerVisualsActive, framesPerSecond: lowPowerMode ? 20 : 30))
                         .overlay {
                             RoundedRectangle(cornerRadius: circularCover ? 24 : 12, style: .continuous)
                                 .strokeBorder(.white.opacity(0.2), lineWidth: 1)
@@ -917,7 +920,7 @@ struct PlayerView: View {
                 if lyrics.isEmpty {
                     emptyLyricsView
                 } else {
-                    LyricsSection(lyrics: lyrics, accent: lyricCurrentColor, secondary: lyricDimColor, gradientStart: lyricGradStart, gradientEnd: lyricGradEnd, baseFontSize: CGFloat(lyricFontSize) * CGFloat(lyricScale), lineSpacing: CGFloat(lyricLineSpacing), glowRadius: lyricGlowRadius, showTranslation: lyricTranslation, alignment: lyricAlign, offsetX: CGFloat(lyricOffsetX), anchor: lyricAnchor, glowColorOverride: lyricGlowColor, blurStart: CGFloat(lyricBlurStart), blurAmount: lyricBlurAmount, tilt: CGFloat(lyricTilt), tiltY: CGFloat(lyricTiltY), lyricOffset: CGFloat(lyricOffset)) { line in
+                    LyricsSection(lyrics: lyrics, accent: lyricCurrentColor, secondary: lyricDimColor, gradientStart: lyricGradStart, gradientEnd: lyricGradEnd, baseFontSize: CGFloat(lyricFontSize) * CGFloat(lyricScale), lineSpacing: CGFloat(lyricLineSpacing), glowRadius: lyricGlowRadius, showTranslation: lyricTranslation, alignment: lyricAlign, offsetX: CGFloat(lyricOffsetX), anchor: lyricAnchor, glowColorOverride: lyricGlowColor, blurStart: CGFloat(lyricBlurStart), blurAmount: lyricBlurAmount, tilt: CGFloat(lyricTilt), tiltY: CGFloat(lyricTiltY), lyricOffset: CGFloat(lyricOffset), stylePreset: lyricStylePreset) { line in
                         BeansHaptics.tap()
                         player.seek(to: LyricTiming.seekTime(for: line, userOffset: lyricOffset))
                     }
@@ -1861,6 +1864,7 @@ struct LyricsSection: View {
     var tiltY: CGFloat = 0
     /// 歌词进度偏移（秒）：正数提前、负数延后
     var lyricOffset: CGFloat = 0
+    var stylePreset: LyricStylePreset = .flow
     let onTapLine: (LyricLine) -> Void
 
     /// 长按歌词进入多选复制模式（可多选 / 全选复制）
@@ -1997,16 +2001,32 @@ struct LyricsSection: View {
         let size = isCurrent ? baseFontSize + 4 : baseFontSize - CGFloat(min(distance, 2)) * 1.5
         // 歌词行模糊：当前行与邻近行保持清晰，距离越远才越柔和（避免只剩一行清晰显得突兀）
         // 模糊起始距离与强度由用户控制（0 强度 = 完全关闭模糊）
-        let blurRadius: CGFloat = isCurrent ? 0 : min(CGFloat(max(distance - Int(blurStart), 0)) * blurAmount, 6.0)
+        let effectiveBlurAmount = stylePreset == .minimal || stylePreset == .highContrast ? 0 : blurAmount
+        let blurRadius: CGFloat = isCurrent ? 0 : min(CGFloat(max(distance - Int(blurStart), 0)) * effectiveBlurAmount, 6.0)
 
         // 当前行用渐变（封面色或自定义），光晕跟随渐变起始色
         let lineStyle: AnyShapeStyle
-        if isCurrent, let gradientStart, let gradientEnd {
+        if isCurrent, stylePreset == .karaoke {
+            let progress = karaokeProgress(index: index, line: line)
+            lineStyle = AnyShapeStyle(
+                LinearGradient(
+                    stops: [
+                        .init(color: accent, location: 0),
+                        .init(color: accent, location: max(0, min(progress, 0.995))),
+                        .init(color: secondary.opacity(0.75), location: min(1, progress + 0.005)),
+                        .init(color: secondary.opacity(0.75), location: 1),
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+        } else if isCurrent, stylePreset == .flow, let gradientStart, let gradientEnd {
             lineStyle = AnyShapeStyle(LinearGradient(colors: [gradientStart, gradientEnd], startPoint: .top, endPoint: .bottom))
         } else {
-            lineStyle = AnyShapeStyle(isCurrent ? accent : secondary)
+            lineStyle = AnyShapeStyle(isCurrent && stylePreset == .highContrast ? Color.white : (isCurrent ? accent : secondary))
         }
         let glowColor = glowColorOverride ?? (gradientStart ?? accent)
+        let effectiveGlowRadius = stylePreset == .minimal || stylePreset == .highContrast ? 0 : glowRadius
 
         let lineFont: Font = BeansFont.lyricFont(size)
         // 翻译行：仅当前行展示（借鉴 Kumone 的歌词翻译显示）
@@ -2018,12 +2038,12 @@ struct LyricsSection: View {
                 .foregroundStyle(lineStyle)
                 // 双层光晕：内层亮、外层宽，发光更明显
                 .shadow(
-                    color: isCurrent ? glowColor.opacity(glowRadius > 0 ? 0.9 : 0) : .clear,
-                    radius: isCurrent ? glowRadius * 0.45 : 0
+                    color: isCurrent ? glowColor.opacity(effectiveGlowRadius > 0 ? 0.9 : 0) : .clear,
+                    radius: isCurrent ? effectiveGlowRadius * 0.45 : 0
                 )
                 .shadow(
-                    color: isCurrent ? glowColor.opacity(glowRadius > 0 ? 0.55 : 0) : .clear,
-                    radius: isCurrent ? glowRadius : 0
+                    color: isCurrent ? glowColor.opacity(effectiveGlowRadius > 0 ? 0.55 : 0) : .clear,
+                    radius: isCurrent ? effectiveGlowRadius : 0
                 )
                 .blur(radius: blurRadius)
                 .opacity(max(opacity, 0.15))
@@ -2031,6 +2051,14 @@ struct LyricsSection: View {
                 .multilineTextAlignment(alignment == .leading ? .leading : .center)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, isCurrent && stylePreset == .highContrast ? 10 : 0)
+                .padding(.vertical, isCurrent && stylePreset == .highContrast ? 6 : 0)
+                .background {
+                    if isCurrent && stylePreset == .highContrast {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.black.opacity(0.72))
+                    }
+                }
             if let translationText, !translationText.isEmpty {
                 Text(translationText)
                     .font(BeansFont.appFont(size * 0.68, .regular))
@@ -2045,6 +2073,14 @@ struct LyricsSection: View {
         .frame(maxWidth: .infinity, alignment: alignment == .leading ? .leading : .center)
         .padding(.horizontal, alignment == .leading ? 40 : 36)
         .animation(.easeInOut(duration: 0.25), value: currentIndex)
+    }
+
+    private func karaokeProgress(index: Int, line: LyricLine) -> Double {
+        guard index == currentIndex else { return index < (currentIndex ?? 0) ? 1 : 0 }
+        let nextTime = lyrics.indices.contains(index + 1) ? lyrics[index + 1].time : line.time + 4
+        let span = max(0.25, nextTime - line.time)
+        let elapsed = LyricTiming.effectiveProgress(clock.progress, userOffset: Double(lyricOffset)) - line.time
+        return min(max(elapsed / span, 0), 1)
     }
 
     private func toggleSelect(_ index: Int) {
@@ -2122,6 +2158,36 @@ struct LyricsSection: View {
 
 // MARK: - 歌词渐变预设（一键组合：渐变起止色 + 发光强度）
 
+enum LyricStylePreset: String, CaseIterable, Identifiable, Codable {
+    case minimal
+    case flow
+    case karaoke
+    case highContrast
+    case custom
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .minimal: return "极简"
+        case .flow: return "流光"
+        case .karaoke: return "卡拉 OK"
+        case .highContrast: return "高对比"
+        case .custom: return "自定义"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .minimal: return "text.aligncenter"
+        case .flow: return "sparkles"
+        case .karaoke: return "music.mic"
+        case .highContrast: return "circle.lefthalf.filled"
+        case .custom: return "slider.horizontal.3"
+        }
+    }
+}
+
 struct LyricPreset {
     let name: String
     let start: String
@@ -2162,7 +2228,7 @@ struct PlayerSettingsSheet: View {
     @AppStorage("beans.deckGrabberEnabled") private var deckGrabberEnabled = true
     @AppStorage("beans.circularCover") private var circularCover = true
     @AppStorage("beans.circularCoverSpin") private var circularCoverSpin = true
-    @AppStorage("beans.djVisual") private var djVisualEnabled = false
+    @AppStorage("beans.playerVisualMode") private var playerVisualModeRaw = PlayerVisualMode.migratedDefaultRawValue
     @AppStorage("beans.djVisualIntensity") private var djVisualIntensity = 0.8
     @AppStorage("beans.lyricGlowColorRaw") private var glowColorRaw = ""
     @AppStorage("beans.swipeSwitchSong") private var swipeSwitchSong = true
@@ -2171,6 +2237,7 @@ struct PlayerSettingsSheet: View {
     @AppStorage("beans.lyricTilt") private var lyricTilt = 0
     @AppStorage("beans.lyricTiltY") private var lyricTiltY = 0
     @AppStorage("beans.lyricOffset") private var lyricOffset = 0.0
+    @AppStorage("beans.lyricStylePreset") private var lyricStylePresetRaw = LyricStylePreset.flow.rawValue
     @AppStorage("beans.lyricBackground.image") private var lyricBackgroundImagePath = ""
     @AppStorage("beans.lyricBackground.blur") private var lyricBackgroundBlur = 12.0
     @AppStorage("beans.lyricBackground.syncCover") private var lyricBackgroundSyncCover = false
@@ -2183,6 +2250,7 @@ struct PlayerSettingsSheet: View {
     @State private var layoutExpanded = false
     @State private var coverExpanded = false
     @State private var showLyricBackgroundPicker = false
+    @State private var applyingLyricPreset = false
 
     /// 左右倾斜文案：0 关闭，负值左倾、正值右倾
     private var tiltYText: String {
@@ -2230,6 +2298,7 @@ struct PlayerSettingsSheet: View {
             set: { newValue in
                 currentColorRaw = "#" + UIColor(newValue).hexString
                 gradMode = 1
+                lyricStylePresetRaw = LyricStylePreset.custom.rawValue
             }
         )
     }
@@ -2244,6 +2313,7 @@ struct PlayerSettingsSheet: View {
             set: { newValue in
                 dimColorRaw = "#" + UIColor(newValue).hexString
                 gradMode = 1
+                lyricStylePresetRaw = LyricStylePreset.custom.rawValue
             }
         )
     }
@@ -2257,6 +2327,7 @@ struct PlayerSettingsSheet: View {
             },
             set: { newValue in
                 glowColorRaw = "#" + UIColor(newValue).hexString
+                lyricStylePresetRaw = LyricStylePreset.custom.rawValue
             }
         )
     }
@@ -2284,6 +2355,7 @@ struct PlayerSettingsSheet: View {
             set: { newValue in
                 gradStartRaw = "#" + UIColor(newValue).hexString
                 gradMode = 1
+                lyricStylePresetRaw = LyricStylePreset.custom.rawValue
             }
         )
     }
@@ -2298,6 +2370,7 @@ struct PlayerSettingsSheet: View {
             set: { newValue in
                 gradEndRaw = "#" + UIColor(newValue).hexString
                 gradMode = 1
+                lyricStylePresetRaw = LyricStylePreset.custom.rawValue
             }
         )
     }
@@ -2343,6 +2416,14 @@ struct PlayerSettingsSheet: View {
             if let path = LyricBackgroundStore.restoreFromBackup(), lyricBackgroundImagePath != path {
                 lyricBackgroundImagePath = path
             }
+        }
+        .onChange(of: glowLevel) { _ in markLyricStyleCustomIfNeeded() }
+        .onChange(of: lyricBlurAmount) { _ in markLyricStyleCustomIfNeeded() }
+        .onChange(of: lyricTilt) { _ in markLyricStyleCustomIfNeeded() }
+        .onChange(of: lyricTiltY) { _ in markLyricStyleCustomIfNeeded() }
+        .onChange(of: gradMode) { _ in markLyricStyleCustomIfNeeded() }
+        .onDisappear {
+            PlatformPreferenceStore.shared.syncPlayerPreferences()
         }
     }
 
@@ -2423,7 +2504,7 @@ struct PlayerSettingsSheet: View {
         }
     }
 
-    /// 播放卡片：切歌 / 进度条样式 / 背景光晕 / DJ 视觉
+    /// 播放卡片：切歌 / 进度条样式 / 播放器视觉
     private var playingCard: some View {
         settingCard("播放", isExpanded: $playbackExpanded) {
             playerButtonStyleSelector
@@ -2467,27 +2548,48 @@ struct PlayerSettingsSheet: View {
                 .foregroundStyle(Color.beansLabel)
             progressStyleGrid
             Divider().opacity(0.5)
-            settingSlider("背景光晕强度", valueText: "\(Int((breath * 100).rounded()))%") {
-                Slider(value: $breath, in: 0...1, step: 0.05)
+            Text("播放器视觉")
+                .font(BeansFont.appFont(13, .semibold))
+                .foregroundStyle(Color.beansLabel)
+            playerVisualModeGrid
+            settingSlider("特效强度", valueText: "\(Int((djVisualIntensity * 100).rounded()))%") {
+                Slider(value: $djVisualIntensity, in: 0.2...1, step: 0.05)
                     .tint(Color.beansAmber)
             }
             Divider().opacity(0.5)
             CompactSettingGroup {
-                settingToggle("DJ 节奏脉冲光效", isOn: $djVisualEnabled,
-                              caption: "封面背后随节拍扩散光环")
-                if djVisualEnabled {
-                    Divider().opacity(0.35)
-                    settingSlider("光效强度", valueText: "\(Int((djVisualIntensity * 100).rounded()))%") {
-                        Slider(value: $djVisualIntensity, in: 0...1, step: 0.05)
-                            .tint(Color.beansAmber)
-                    }
-                }
-                Divider().opacity(0.35)
                 settingToggle("与其他音频同时播放", isOn: $mixesWithOthers,
                               caption: "默认关闭以显示锁屏/灵动岛")
                     .onChange(of: mixesWithOthers) { value in
                         PlayerManager.applyAudioMixPreference(value)
                     }
+            }
+        }
+    }
+
+    private var playerVisualModeGrid: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(PlayerVisualMode.allCases) { mode in
+                    let selected = playerVisualModeRaw == mode.rawValue
+                    Button {
+                        playerVisualModeRaw = mode.rawValue
+                        BeansHaptics.select()
+                    } label: {
+                        VStack(spacing: 6) {
+                            Image(systemName: mode.icon)
+                                .font(.system(size: 17, weight: .semibold))
+                            Text(mode.title)
+                                .font(BeansFont.appFont(11, .medium))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(selected ? Color.white : Color.beansLabel)
+                        .frame(width: 78, height: 62)
+                        .background(selected ? Color.beansAmber : Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("播放器视觉：\(mode.title)")
+                }
             }
         }
     }
@@ -2606,10 +2708,15 @@ struct PlayerSettingsSheet: View {
 
     private var lyricDisplayCard: some View {
         settingCard("歌词显示", isExpanded: $lyricDisplayExpanded) {
+            Text("歌词样式")
+                .font(BeansFont.appFont(13, .semibold))
+                .foregroundStyle(Color.beansLabel)
+            lyricStyleGrid
+            Divider().opacity(0.5)
             settingSlider("歌词字号", valueText: "\(fontSize) pt") {
                 Slider(
                     value: Binding(get: { Double(fontSize) }, set: { fontSize = Int($0) }),
-                    in: 12...28,
+                    in: 12...40,
                     step: 1
                 )
                 .tint(Color.beansAmber)
@@ -2642,6 +2749,63 @@ struct PlayerSettingsSheet: View {
             settingToggle("显示歌词翻译", isOn: $lyricTranslation,
                           caption: "当前播放歌词下方显示译文（网易云 tlyric）")
         }
+    }
+
+    private var lyricStyleGrid: some View {
+        let presets = LyricStylePreset.allCases.filter { $0 != .custom }
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+            ForEach(presets) { preset in
+                let selected = lyricStylePresetRaw == preset.rawValue
+                Button {
+                    applyLyricStyle(preset)
+                } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: preset.icon)
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(preset.title)
+                            .font(BeansFont.appFont(10, .medium))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(selected ? Color.white : Color.beansLabel)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+                    .background(selected ? Color.beansAmber : Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func applyLyricStyle(_ preset: LyricStylePreset) {
+        applyingLyricPreset = true
+        lyricStylePresetRaw = preset.rawValue
+        switch preset {
+        case .minimal:
+            glowLevel = 0
+            lyricBlurAmount = 0
+            gradMode = 0
+        case .flow:
+            glowLevel = 2
+            lyricBlurAmount = 1.1
+            gradMode = 0
+        case .karaoke:
+            glowLevel = 1
+            lyricBlurAmount = 0.5
+            gradMode = 0
+        case .highContrast:
+            glowLevel = 0
+            lyricBlurAmount = 0
+            gradMode = 0
+        case .custom:
+            break
+        }
+        BeansHaptics.select()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { applyingLyricPreset = false }
+    }
+
+    private func markLyricStyleCustomIfNeeded() {
+        guard !applyingLyricPreset else { return }
+        lyricStylePresetRaw = LyricStylePreset.custom.rawValue
     }
 
     /// 歌词效果卡片：模糊 / 发光 / 渐变预设 / 配色
@@ -2936,10 +3100,11 @@ struct ShareSheet: UIViewControllerRepresentable {
 struct CoverSpin: ViewModifier {
     let enabled: Bool
     let isPlaying: Bool
+    let framesPerSecond: Double
 
     func body(content: Content) -> some View {
         if enabled {
-            TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !isPlaying)) { context in
+            TimelineView(.animation(minimumInterval: 1.0 / framesPerSecond, paused: !isPlaying)) { context in
                 let angle = (context.date.timeIntervalSinceReferenceDate * 15)
                     .truncatingRemainder(dividingBy: 360)
                 return content

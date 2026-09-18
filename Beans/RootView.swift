@@ -34,6 +34,7 @@ struct RootView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var favorites: FavoritesStore
     @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var credentialProbe = CredentialProbeService.shared
     @AppStorage("beans.themeMode") private var themeModeRaw = BeansThemeMode.system.rawValue
 
     @State private var selection: RootTab = .discover
@@ -146,6 +147,21 @@ struct RootView: View {
         .overlay(alignment: .bottom) {
             ToastView(center: ToastCenter.shared)
         }
+        .overlay(alignment: .top) {
+            VStack(spacing: 8) {
+                if let banner = credentialProbe.banner {
+                    credentialProbeBanner(banner)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                if showUpdateAlert, let info = updateInfo {
+                    updateNotificationBanner(info)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .zIndex(30)
+        }
         .onAppear {
             // 启动已完成：标记本次启动正常（供下次启动检测闪退）
             CrashReporter.shared.markLaunchCompleted()
@@ -164,6 +180,10 @@ struct RootView: View {
                 player.persistCurrentPlaybackState()
             case .active:
                 player.reactivateAudioSessionIfNeeded()
+                Task {
+                    await credentialProbe.runAutomaticIfDue(auth: auth)
+                    await checkForUpdateIfDue()
+                }
             @unknown default:
                 break
             }
@@ -178,39 +198,25 @@ struct RootView: View {
             guard let raw = notification.object as? String, let tab = RootTab(rawValue: raw) else { return }
             selection = tab
         }
+        .onReceive(NotificationCenter.default.publisher(for: .beansQQLoginDidUpdate)) { _ in
+            Task { _ = await credentialProbe.probe(.qq, mode: .manual, auth: auth) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .beansNeteaseLoginDidUpdate)) { _ in
+            Task { _ = await credentialProbe.probe(.netease, mode: .manual, auth: auth) }
+        }
         .sheet(isPresented: $showWhatsNew) {
             WhatsNewSheet()
         }
         .task(id: disclaimerAccepted) {
             guard disclaimerAccepted else { return }
-            if let info = await UpdateChecker.checkIfNeeded() {
-                updateInfo = info
-                showUpdateAlert = true
-            }
-        }
-        .overlay {
-            if showUpdateAlert, let info = updateInfo {
-                UpdatePromptOverlay(
-                    info: info,
-                    onOpen: {
-                        showUpdateAlert = false
-                        if let assetURL = info.assetURL {
-                            startUpdateDownload(info: info, assetURL: assetURL)
-                        } else {
-                            UIApplication.shared.open(info.htmlURL)
-                        }
-                    },
-                    onRemindLater: {
-                        UpdateChecker.suppress(version: info.version)
-                        showUpdateAlert = false
-                    },
-                    onDismiss: {
-                        // 点击弹窗外空白处仅关闭本次提示，不记录“以后再说”。
-                        showUpdateAlert = false
-                    }
-                )
-                .transition(.opacity)
-                .zIndex(20)
+            while !Task.isCancelled {
+                await credentialProbe.runAutomaticIfDue(auth: auth)
+                await checkForUpdateIfDue()
+                do {
+                    try await Task.sleep(nanoseconds: 30 * 60 * 1_000_000_000)
+                } catch {
+                    return
+                }
             }
         }
         .overlay {
@@ -229,6 +235,108 @@ struct RootView: View {
             }
         } message: {
             Text("\(updateDownloadError)\n如果长时间无反应，可能需要特殊网络环境才能访问 GitHub。")
+        }
+    }
+
+    private func credentialProbeBanner(_ banner: CredentialProbeBanner) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.shield.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(banner.message)
+                    .font(BeansFont.appFont(14, .semibold))
+                    .foregroundStyle(Color.beansLabel)
+                Text("点击前往账号管理并重新授权")
+                    .font(BeansFont.appFont(11))
+                    .foregroundStyle(Color.beansComment)
+            }
+            Spacer()
+            Button {
+                credentialProbe.dismissBanner()
+                selection = .profile
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("打开账号管理")
+            Button {
+                credentialProbe.dismissBanner()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("关闭提醒")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 14, y: 5)
+    }
+
+    private func updateNotificationBanner(_ info: UpdateChecker.ReleaseInfo) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.down.circle.fill")
+                .foregroundStyle(Color.beansAmber)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Beans Music \(info.version) 可更新")
+                    .font(BeansFont.appFont(14, .semibold))
+                    .foregroundStyle(Color.beansLabel)
+                Text(info.name)
+                    .font(BeansFont.appFont(11))
+                    .foregroundStyle(Color.beansComment)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button("查看") {
+                showUpdateAlert = false
+                if let assetURL = info.assetURL {
+                    startUpdateDownload(info: info, assetURL: assetURL)
+                } else {
+                    UIApplication.shared.open(info.htmlURL)
+                }
+            }
+            .font(BeansFont.appFont(12, .semibold))
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.beansAmber)
+            Menu {
+                Button("稍后提醒") {
+                    UpdateChecker.remindLater(version: info.version)
+                    showUpdateAlert = false
+                }
+                Button("忽略此版本") {
+                    UpdateChecker.suppress(version: info.version)
+                    showUpdateAlert = false
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 30, height: 30)
+            }
+            .accessibilityLabel("更新提醒选项")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.beansAmber.opacity(0.32), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 14, y: 5)
+    }
+
+    @MainActor
+    private func checkForUpdateIfDue() async {
+        if let info = await UpdateChecker.checkIfNeeded() {
+            updateInfo = info
+            showUpdateAlert = true
         }
     }
 

@@ -31,11 +31,14 @@ final class IPADownloader: NSObject, ObservableObject {
         session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
     }
 
-    /// 下载指定版本 IPA 到临时目录，返回本地文件 URL；分享结束后由调用方删除。
+    /// 下载当前平台的发布资产到临时目录，返回本地文件 URL；分享结束后由调用方删除。
     func download(assetURL: URL, version: String) async throws -> URL {
         cancelQuietly()
         let dir = FileManager.default.temporaryDirectory
-        destination = dir.appendingPathComponent("Beans-\(version)-unsigned.ipa")
+        let remoteName = assetURL.lastPathComponent.removingPercentEncoding ?? assetURL.lastPathComponent
+        let ext = URL(fileURLWithPath: remoteName).pathExtension
+        let suffix = ext.isEmpty ? "bin" : ext
+        destination = dir.appendingPathComponent("Beans-\(version).\(suffix)")
 
         progress = 0
         isDownloading = true

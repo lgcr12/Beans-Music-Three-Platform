@@ -752,6 +752,7 @@ struct AccountHubSheet: View {
     @ObservedObject private var kugouAuth = KugouMusicAuth.shared
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
     @ObservedObject private var beansAccount = BeansAccountStore.shared
+    @ObservedObject private var credentialProbe = CredentialProbeService.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var showNeteaseLogin = false
@@ -773,6 +774,7 @@ struct AccountHubSheet: View {
                         if platformPrefs.isEnabled(SearchProvider.netease) { neteaseCard }
                         if platformPrefs.isEnabled(SearchProvider.qq) { qqCard }
                         if platformPrefs.isEnabled(SearchProvider.kugou) { kugouCard }
+                        credentialProbeCard
                         Text("\(platformPrefs.summaryText) 登录后可同步歌单并提升可播成功率")
                             .font(BeansFont.appFont(11))
                             .foregroundStyle(Color.beansComment)
@@ -811,6 +813,7 @@ struct AccountHubSheet: View {
         .confirmationDialog("退出网易云登录？", isPresented: $confirmNeteaseLogout, titleVisibility: .visible) {
             Button("退出登录", role: .destructive) {
                 auth.logout()
+                credentialProbe.clear(platform: .netease)
                 WebLoginDataCleaner.clearNetEase()
                 ToastCenter.shared.show("已退出网易云账号")
             }
@@ -822,6 +825,7 @@ struct AccountHubSheet: View {
             }
             Button("退出登录", role: .destructive) {
                 qqAuth.logout()
+                credentialProbe.clear(platform: .qq)
                 WebLoginDataCleaner.clearQQMusic()
                 ToastCenter.shared.show("已退出 QQ 音乐")
             }
@@ -890,9 +894,15 @@ struct AccountHubSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("网易云音乐")
-                        .font(BeansFont.appFont(15, .semibold))
-                        .foregroundStyle(Color.beansLabel)
+                    HStack(spacing: 6) {
+                        Text("网易云音乐")
+                            .font(BeansFont.appFont(15, .semibold))
+                            .foregroundStyle(Color.beansLabel)
+                        if credentialProbe.status(for: .netease, authorized: auth.isLoggedIn).needsAttention {
+                            Circle().fill(Color.red).frame(width: 7, height: 7)
+                                .accessibilityLabel("凭证需要处理")
+                        }
+                    }
                     HStack(spacing: 6) {
                         Text(auth.isLoggedIn ? (auth.user?.nickname ?? "已登录") : "未登录 · 扫码登录同步歌单")
                             .font(BeansFont.appFont(12))
@@ -938,9 +948,15 @@ struct AccountHubSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("QQ 音乐")
-                        .font(BeansFont.appFont(15, .semibold))
-                        .foregroundStyle(Color.beansLabel)
+                    HStack(spacing: 6) {
+                        Text("QQ 音乐")
+                            .font(BeansFont.appFont(15, .semibold))
+                            .foregroundStyle(Color.beansLabel)
+                        if credentialProbe.status(for: .qq, authorized: qqAuth.isLoggedIn).needsAttention {
+                            Circle().fill(Color.red).frame(width: 7, height: 7)
+                                .accessibilityLabel("凭证需要处理")
+                        }
+                    }
                     HStack(spacing: 6) {
                         Text(qqAccountStatus)
                             .font(BeansFont.appFont(12))
@@ -972,6 +988,104 @@ struct AccountHubSheet: View {
         guard qqAuth.isLoggedIn else { return "未登录 · 网页 / 扫码 / Cookie 登录" }
         let name = qqAuth.nickname.isEmpty ? "已登录" : qqAuth.nickname
         return qqAuth.hasPlaybackCredential ? name : "\(name) · 播放凭证待刷新"
+    }
+
+    private var credentialProbeCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("凭证有效性")
+                        .font(BeansFont.appFont(15, .semibold))
+                        .foregroundStyle(Color.beansLabel)
+                    Text("自动检测每 24 小时运行一次")
+                        .font(BeansFont.appFont(11))
+                        .foregroundStyle(Color.beansComment)
+                }
+                Spacer()
+                Toggle("自动检测", isOn: $credentialProbe.automaticEnabled)
+                    .labelsHidden()
+                    .tint(Color.beansAmber)
+                    .accessibilityLabel("自动检测凭证")
+            }
+
+            credentialProbeRow(.qq, authorized: qqAuth.isLoggedIn)
+            Divider().opacity(0.35)
+            credentialProbeRow(.netease, authorized: auth.isLoggedIn)
+
+            Button {
+                Task {
+                    await credentialProbe.runAll(mode: .manual, auth: auth)
+                    ToastCenter.shared.show("凭证检测完成")
+                }
+            } label: {
+                Label("检测全部", systemImage: "checkmark.shield")
+                    .font(BeansFont.appFont(13, .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 9)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.beansAmber)
+            .background(Color.beansAmber.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .disabled(credentialProbe.checkingPlatforms.count == CredentialProbePlatform.allCases.count)
+        }
+        .padding(14)
+        .background(BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)))
+    }
+
+    private func credentialProbeRow(_ platform: CredentialProbePlatform, authorized: Bool) -> some View {
+        let status = credentialProbe.status(for: platform, authorized: authorized)
+        let result = credentialProbe.result(for: platform, authorized: authorized)
+        return HStack(spacing: 10) {
+            Circle()
+                .fill(credentialProbeColor(status))
+                .frame(width: 9, height: 9)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(platform.title)
+                        .font(BeansFont.appFont(13, .medium))
+                        .foregroundStyle(Color.beansLabel)
+                    Text(status.title)
+                        .font(BeansFont.appFont(11, .semibold))
+                        .foregroundStyle(credentialProbeColor(status))
+                }
+                Text(credentialProbeTimeText(result))
+                    .font(BeansFont.appFont(10))
+                    .foregroundStyle(Color.beansComment)
+            }
+            Spacer()
+            Button {
+                Task { _ = await credentialProbe.probe(platform, mode: .manual, auth: auth) }
+            } label: {
+                Image(systemName: status == .checking ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.beansAmber)
+            .disabled(!authorized || status == .checking)
+            .accessibilityLabel("检测\(platform.title)凭证")
+        }
+    }
+
+    private func credentialProbeColor(_ status: CredentialProbeStatus) -> Color {
+        switch status {
+        case .valid: return .green
+        case .limited: return .orange
+        case .invalid: return .red
+        case .checking: return Color.beansAmber
+        case .networkError: return .yellow
+        case .notAuthorized, .neverChecked: return Color.beansComment
+        }
+    }
+
+    private func credentialProbeTimeText(_ result: PlatformCredentialProbeResult?) -> String {
+        guard let result else { return "尚未检测" }
+        let relative = RelativeDateTimeFormatter()
+        relative.unitsStyle = .short
+        let checked = relative.localizedString(for: result.checkedAt, relativeTo: Date())
+        let next = relative.localizedString(for: result.nextCheckAt, relativeTo: Date())
+        let membership = result.membership.map { " · \($0)" } ?? ""
+        return "\(checked)检测 · 下次\(next)\(membership)"
     }
 
     private var kugouCard: some View {
@@ -1042,6 +1156,7 @@ struct SettingsView: View {
     /// Canvas 粒子氛围动效，默认开启；关闭可进一步降低 GPU 占用
     @AppStorage("beans.particles.enabled") private var particlesEnabled = true
     @AppStorage("beans.audio.mixothers.v1") private var mixesWithOthers = false
+    @AppStorage(UpdateChecker.automaticEnabledKey) private var automaticUpdateNotifications = true
     @AppStorage("beans.labelColorHex") private var labelColorHex = ""
     @ObservedObject private var sourceStore = UnblockSourceStore.shared
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
@@ -1977,6 +2092,19 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "应用与更新")
             VStack(spacing: 0) {
+                Toggle(isOn: $automaticUpdateNotifications) {
+                    settingsApplicationRow(
+                        icon: "bell.badge",
+                        title: "应用内更新通知",
+                        subtitle: "每 24 小时检查一次，可随时关闭"
+                    )
+                }
+                .toggleStyle(.switch)
+                .tint(Color.beansAmber)
+                .padding(.trailing, 14)
+
+                Divider().padding(.leading, 50).opacity(0.35)
+
                 Button {
                     guard !checkingUpdate else { return }
                     checkingUpdate = true
