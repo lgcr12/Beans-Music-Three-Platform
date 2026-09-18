@@ -43,6 +43,8 @@ server/redis-data/
 
 # Local release output
 dist/
+ci-builds/
+ci-logs/
 
 # Editor and local user settings
 .idea/
