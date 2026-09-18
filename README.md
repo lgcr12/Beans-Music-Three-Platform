@@ -205,6 +205,24 @@ MSIX 输出位于 `windows/Beans.Windows/AppPackages`。macOS 可以构建和测
 
 Windows 客户端已包含：Beans 注册/登录/邮箱验证、二维码登录与设备撤销、三套中文主题、QQ 音乐/网易云 WebView2 授权恢复、客户端资料校验、只读歌单镜像加密同步、本地音乐扫描与 MediaPlayer 播放、同名 LRC 歌词高亮、队列，以及仅保存在本机的合法音频断点下载。Beans 服务端不接收平台 Cookie，也不代理第三方音频。
 
+### 分平台发布与更新
+
+三个客户端使用独立的 GitHub Release 通道，只检测并下载本端资产：
+
+- iOS：`ios-v*`，Release 只包含 `.ipa`。
+- macOS：`mac-v*`，Release 只包含 Catalyst `.app.zip`。
+- Windows：`windows-v*`，Release 只包含与当前 CPU 架构匹配的 `.msix`。
+
+可以在 GitHub Actions 的 `Publish Platform Release` 中选择平台和版本，也可以推送对应标签触发发布：
+
+```bash
+git tag ios-v1.6.0 && git push origin ios-v1.6.0
+git tag mac-v1.6.0 && git push origin mac-v1.6.0
+git tag windows-v1.6.0 && git push origin windows-v1.6.0
+```
+
+客户端在启动、回到前台和持续运行期间按 24 小时周期检查，并支持手动检查。Swift/WinUI 可执行代码不能绕过系统签名做热更新；iOS IPA、Catalyst 应用和 Windows MSIX 仍需重新安装。仅非可执行的主题或远端配置适合后续增加资源热更新。
+
 ### 验收边界
 
 正式目标是 iOS 26、macOS 15 和 Windows 11。当前开发机只有 Xcode 16.2/iOS 18.2 SDK 且未安装 .NET 10/Windows SDK，因此本机只能完成 Apple 结构构建、XAML/XML/契约静态检查；正式 Apple 26 构建、Windows XAML/MSIX 构建和真实 QQ/网易云账号互通需由 `.github/workflows/ecosystem-ci.yml` 在 macOS 26 与 Windows 11 runner 执行。

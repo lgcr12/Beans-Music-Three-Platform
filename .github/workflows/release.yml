@@ -1,12 +1,21 @@
-name: Publish Three-Platform Release
+name: Publish Platform Release
 
 on:
   push:
-    tags: ['v*']
+    tags:
+      - 'ios-v*'
+      - 'mac-v*'
+      - 'windows-v*'
+      - 'server-v*'
   workflow_dispatch:
     inputs:
-      tag:
-        description: '发布标签，例如 v1.6.0'
+      platform:
+        description: '只发布所选平台'
+        required: true
+        type: choice
+        options: [ios, mac, windows, server]
+      version:
+        description: '版本号，例如 1.6.0'
         required: true
         type: string
 
@@ -14,34 +23,98 @@ permissions:
   contents: write
 
 jobs:
-  apple:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      platform: ${{ steps.release.outputs.platform }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - id: release
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_PLATFORM: ${{ inputs.platform }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            platform="$REQUESTED_PLATFORM"
+            version="$REQUESTED_VERSION"
+            version="${version#v}"
+            tag="${platform}-v${version}"
+          else
+            tag="${GITHUB_REF_NAME}"
+            case "$tag" in
+              ios-v*) platform="ios"; version="${tag#ios-v}" ;;
+              mac-v*) platform="mac"; version="${tag#mac-v}" ;;
+              windows-v*) platform="windows"; version="${tag#windows-v}" ;;
+              server-v*) platform="server"; version="${tag#server-v}" ;;
+              *) echo "Unsupported release tag: $tag"; exit 1 ;;
+            esac
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must use major.minor.patch: $version"
+            exit 1
+          fi
+          echo "platform=$platform" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  ios:
+    needs: prepare
+    if: needs.prepare.outputs.platform == 'ios'
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - run: brew install xcodegen
       - run: xcodegen generate
-      - name: Build unsigned IPA and Catalyst ZIP
+      - name: Build unsigned IPA
         run: |
           xcodebuild -project Beans.xcodeproj -scheme Beans -configuration Release -sdk iphoneos \
             -derivedDataPath build-release-ios CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
           mkdir Payload
           cp -R build-release-ios/Build/Products/Release-iphoneos/Beans.app Payload/
-          ditto -c -k --sequesterRsrc --keepParent Payload Beans-iOS26-unsigned.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload "Beans-iOS26-v${{ needs.prepare.outputs.version }}-unsigned.ipa"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Beans Music iOS v${{ needs.prepare.outputs.version }}
+          generate_release_notes: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: Beans-iOS26-v${{ needs.prepare.outputs.version }}-unsigned.ipa
+
+  mac:
+    needs: prepare
+    if: needs.prepare.outputs.platform == 'mac'
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Build Catalyst ZIP
+        run: |
           xcodebuild -project Beans.xcodeproj -scheme BeansCatalyst -configuration Release \
             -destination 'generic/platform=macOS,variant=Mac Catalyst' -derivedDataPath build-release-catalyst \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
           ditto -c -k --sequesterRsrc --keepParent \
-            "build-release-catalyst/Build/Products/Release-maccatalyst/Beans Music.app" Beans-macOS15-Catalyst.app.zip
-      - uses: actions/upload-artifact@v4
+            "build-release-catalyst/Build/Products/Release-maccatalyst/Beans Music.app" \
+            "Beans-macOS15-Catalyst-v${{ needs.prepare.outputs.version }}.app.zip"
+      - uses: softprops/action-gh-release@v2
         with:
-          name: release-apple
-          path: |
-            Beans-iOS26-unsigned.ipa
-            Beans-macOS15-Catalyst.app.zip
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Beans Music macOS v${{ needs.prepare.outputs.version }}
+          generate_release_notes: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: Beans-macOS15-Catalyst-v${{ needs.prepare.outputs.version }}.app.zip
 
   windows:
+    needs: prepare
+    if: needs.prepare.outputs.platform == 'windows'
     runs-on: windows-latest
     strategy:
+      max-parallel: 1
       matrix:
         include:
           - platform: x64
@@ -69,46 +142,34 @@ jobs:
         run: |
           $package = Get-ChildItem windows/Beans.Windows/AppPackages -Recurse -Filter *.msix | Select-Object -First 1
           if (-not $package) { throw "MSIX package not found" }
-          Copy-Item $package.FullName "Beans-Windows-${{ matrix.platform }}.msix"
-      - uses: actions/upload-artifact@v4
+          Copy-Item $package.FullName "Beans-Windows-${{ matrix.platform }}-v${{ needs.prepare.outputs.version }}.msix"
+      - uses: softprops/action-gh-release@v2
         with:
-          name: release-windows-${{ matrix.platform }}
-          path: Beans-Windows-${{ matrix.platform }}.msix
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Beans Music Windows v${{ needs.prepare.outputs.version }}
+          generate_release_notes: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: Beans-Windows-${{ matrix.platform }}-v${{ needs.prepare.outputs.version }}.msix
 
-  backend:
+  server:
+    needs: prepare
+    if: needs.prepare.outputs.platform == 'server'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: |
+      - name: Build deployment bundle
+        run: |
           docker build -f server/Beans.Api/Dockerfile -t beans-api:${{ github.sha }} server/Beans.Api
           docker save beans-api:${{ github.sha }} | gzip > Beans-Server-Docker-image.tar.gz
           tar -czf Beans-Server-Compose.tar.gz server/compose.yaml server/Caddyfile server/.env.example
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-server
-          path: |
-            Beans-Server-Docker-image.tar.gz
-            Beans-Server-Compose.tar.gz
-
-  publish:
-    needs: [apple, windows, backend]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: release-*
-          path: release-assets
-          merge-multiple: true
-      - name: Resolve release tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "RELEASE_TAG=${{ inputs.tag }}" >> "$GITHUB_ENV"
-          else
-            echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
-          fi
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: Beans Music ${{ env.RELEASE_TAG }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: Beans Music Server v${{ needs.prepare.outputs.version }}
           generate_release_notes: true
-          files: release-assets/*
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: |
+            Beans-Server-Docker-image.tar.gz
+            Beans-Server-Compose.tar.gz

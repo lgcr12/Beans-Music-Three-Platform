@@ -49,16 +49,33 @@ public sealed class ApplicationUpdateServiceTests
     public async Task ParsesReleaseAssetsAndNotes()
     {
         const string json = """
-            {"tag_name":"v2.1.0","name":"Beans 2.1","body":"修复播放","published_at":"2026-09-18T00:00:00Z","html_url":"https://example.com/release","assets":[{"name":"Beans-Windows-x64.msix","browser_download_url":"https://example.com/app.msix"}]}
+            [
+              {"tag_name":"ios-v3.0.0","name":"iOS","body":"iOS only","published_at":"2026-09-18T01:00:00Z","html_url":"https://example.com/ios","assets":[{"name":"Beans-iOS26.ipa","browser_download_url":"https://example.com/app.ipa"}]},
+              {"tag_name":"windows-v2.1.0","name":"Beans 2.1","body":"修复播放","published_at":"2026-09-18T00:00:00Z","html_url":"https://example.com/release","assets":[{"name":"Beans-Windows-x64.msix","browser_download_url":"https://example.com/app.msix"}]}
+            ]
             """;
         using var http = new HttpClient(new RouteHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json")
         }));
-        var result = await new ApplicationUpdateService(http).CheckAsync(ct: TestContext.Current.CancellationToken);
+        var result = await new ApplicationUpdateService(http, Architecture.X64).CheckAsync(ct: TestContext.Current.CancellationToken);
         Assert.Equal("2.1.0", result.Release?.Version);
         Assert.Equal("修复播放", result.Release?.Notes);
         Assert.Single(result.Release!.Assets);
+    }
+
+    [Fact]
+    public async Task DoesNotReturnAnotherWindowsArchitecture()
+    {
+        const string json = """
+            [{"tag_name":"windows-v2.1.0","name":"Windows","body":"","published_at":"2026-09-18T00:00:00Z","html_url":"https://example.com/release","assets":[{"name":"Beans-Windows-arm64.msix","browser_download_url":"https://example.com/app.msix"}]}]
+            """;
+        using var http = new HttpClient(new RouteHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        }));
+        var result = await new ApplicationUpdateService(http, Architecture.X64).CheckAsync(ct: TestContext.Current.CancellationToken);
+        Assert.Null(result.Release);
     }
 
     private sealed class RouteHandler(Func<HttpRequestMessage, HttpResponseMessage> route) : HttpMessageHandler

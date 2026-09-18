@@ -2,17 +2,22 @@ import Foundation
 
 // MARK: - 更新检测（GitHub Releases API）
 
-/// 检测 GitHub 最新 Release 并与当前版本比较，发现新版时用于弹窗提示。
+/// 检测当前平台的 GitHub Release 通道并与当前版本比较，发现新版时用于弹窗提示。
 /// 自动检查每次启动一次，手动检查随时可用。
 struct UpdateChecker {
     static let repoPath = "lgcr12/Beans-Music-Three-Platform"
-    static let releasePageURL = URL(string: "https://github.com/\(repoPath)/releases/latest")!
-    private static let latestAPI = URL(string: "https://api.github.com/repos/\(repoPath)/releases/latest")!
+    static let releasePageURL = URL(string: "https://github.com/\(repoPath)/releases")!
+    private static let releasesAPI = URL(string: "https://api.github.com/repos/\(repoPath)/releases?per_page=30")!
+#if targetEnvironment(macCatalyst)
+    private static let channel = "mac"
+#else
+    private static let channel = "ios"
+#endif
     private static let suppressedVersionKey = "beans.updateCheck.suppressedVersion"
     static let automaticEnabledKey = "beans.updateCheck.automaticEnabled"
     private static let lastAutomaticCheckKey = "beans.updateCheck.lastAutomaticCheck"
-    private static let etagKey = "beans.updateCheck.etag"
-    private static let cachedReleaseKey = "beans.updateCheck.cachedRelease"
+    private static var etagKey: String { "beans.updateCheck.\(channel).etag" }
+    private static var cachedReleaseKey: String { "beans.updateCheck.\(channel).cachedRelease" }
     private static let lastPromptedVersionKey = "beans.updateCheck.lastPromptedVersion"
     private static let remindLaterVersionKey = "beans.updateCheck.remindLaterVersion"
     private static let automaticInterval: TimeInterval = 24 * 60 * 60
@@ -28,6 +33,34 @@ struct UpdateChecker {
         let assets: [String: URL]
         /// 当前 Apple 目标对应的安装包直链。
         let assetURL: URL?
+    }
+
+    private struct GitHubAsset: Decodable {
+        let name: String
+        let browserDownloadURL: URL
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case browserDownloadURL = "browser_download_url"
+        }
+    }
+
+    private struct GitHubRelease: Decodable {
+        let tagName: String
+        let name: String?
+        let body: String?
+        let htmlURL: URL
+        let publishedAt: Date?
+        let draft: Bool
+        let prerelease: Bool
+        let assets: [GitHubAsset]
+
+        enum CodingKeys: String, CodingKey {
+            case tagName = "tag_name"
+            case name, body, draft, prerelease, assets
+            case htmlURL = "html_url"
+            case publishedAt = "published_at"
+        }
     }
 
     enum CheckResult {
@@ -93,7 +126,7 @@ struct UpdateChecker {
 
     /// 拉取最新 Release（公开仓库无需 Token）
     static func fetchLatest() async throws -> ReleaseInfo {
-        var request = URLRequest(url: latestAPI)
+        var request = URLRequest(url: releasesAPI)
         request.setValue("Beans-Music/\(currentVersion)", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         if let etag = UserDefaults.standard.string(forKey: etagKey), !etag.isEmpty {
@@ -108,32 +141,27 @@ struct UpdateChecker {
            let info = try? JSONDecoder().decode(ReleaseInfo.self, from: cached) {
             return info
         }
-        guard http.statusCode == 200,
-              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = json["tag_name"] as? String,
-              let html = json["html_url"] as? String,
-              let url = URL(string: html) else {
+        guard http.statusCode == 200 else {
             throw URLError(.cannotParseResponse)
         }
-        let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        let assets: [String: URL] = Dictionary(uniqueKeysWithValues: (json["assets"] as? [[String: Any]] ?? []).compactMap { item in
-            guard let name = item["name"] as? String,
-                  let rawURL = item["browser_download_url"] as? String,
-                  let url = URL(string: rawURL) else { return nil }
-            return (name, url)
-        })
-#if targetEnvironment(macCatalyst)
-        let assetURL = assets.first(where: { $0.key.lowercased().contains("catalyst") && $0.key.lowercased().hasSuffix(".zip") })?.value
-#else
-        let assetURL = assets.first(where: { $0.key.lowercased().hasSuffix(".ipa") })?.value
-#endif
-        let publishedAt = (json["published_at"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let releases = try decoder.decode([GitHubRelease].self, from: data)
+        let release = releases.first { isChannelRelease($0, legacy: false) }
+            ?? releases.first { isChannelRelease($0, legacy: true) }
+        guard let release,
+              let version = version(from: release.tagName),
+              let asset = release.assets.first(where: isPlatformAsset) else {
+            throw URLError(.resourceUnavailable)
+        }
+        let assets = Dictionary(uniqueKeysWithValues: release.assets.map { ($0.name, $0.browserDownloadURL) })
+        let assetURL = asset.browserDownloadURL
         let info = ReleaseInfo(
             version: version,
-            name: json["name"] as? String ?? tag,
-            body: json["body"] as? String ?? "",
-            htmlURL: url,
-            publishedAt: publishedAt,
+            name: release.name ?? release.tagName,
+            body: release.body ?? "",
+            htmlURL: release.htmlURL,
+            publishedAt: release.publishedAt,
             assets: assets,
             assetURL: assetURL
         )
@@ -144,6 +172,36 @@ struct UpdateChecker {
             UserDefaults.standard.set(cached, forKey: cachedReleaseKey)
         }
         return info
+    }
+
+    private static func isChannelRelease(_ release: GitHubRelease, legacy: Bool) -> Bool {
+        guard !release.draft, !release.prerelease,
+              release.assets.contains(where: isPlatformAsset) else { return false }
+        let tag = release.tagName.lowercased()
+        return legacy ? tag.first == "v" : tag.hasPrefix("\(channel)-v")
+    }
+
+    private static func isPlatformAsset(_ asset: GitHubAsset) -> Bool {
+        let name = asset.name.lowercased()
+#if targetEnvironment(macCatalyst)
+        return name.hasSuffix(".zip") && (name.contains("catalyst") || name.contains("macos"))
+#else
+        return name.hasSuffix(".ipa") && name.contains("ios")
+#endif
+    }
+
+    private static func version(from tag: String) -> String? {
+        let lower = tag.lowercased()
+        let raw: Substring
+        if lower.hasPrefix("\(channel)-v") {
+            raw = tag.dropFirst(channel.count + 2)
+        } else if lower.first == "v" {
+            raw = tag.dropFirst()
+        } else {
+            return nil
+        }
+        let version = raw.split(separator: "-", maxSplits: 1).first.map(String.init) ?? ""
+        return !version.isEmpty && version.split(separator: ".").allSatisfy { Int($0) != nil } ? version : nil
     }
 
     /// 三段式版本号比较：remote 大于 current 返回 true
