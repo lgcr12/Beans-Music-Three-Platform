@@ -7,7 +7,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
-using Microsoft.UI.Xaml.Shapes;
 using QRCoder;
 using Windows.ApplicationModel;
 using Windows.Foundation;
@@ -16,6 +15,7 @@ using Windows.Media.Playback;
 using Windows.System;
 using Windows.Storage.Streams;
 using Windows.UI.ViewManagement;
+using Rectangle = Microsoft.UI.Xaml.Shapes.Rectangle;
 
 namespace Beans.Windows;
 
@@ -561,7 +561,7 @@ public sealed partial class MainWindow : Window
         UniverseCurrentArtist.Text = $"本地音乐 · {track.Extension.TrimStart('.').ToUpperInvariant()}";
         _mediaPlayer.Source = MediaSource.CreateFromUri(new Uri(Path.GetFullPath(track.Path)));
         var updater = _mediaPlayer.SystemMediaTransportControls.DisplayUpdater;
-        updater.Type = Windows.Media.MediaPlaybackType.Music;
+        updater.Type = global::Windows.Media.MediaPlaybackType.Music;
         updater.MusicProperties.Title = track.Title;
         updater.MusicProperties.Artist = "本地音乐";
         updater.Update();
