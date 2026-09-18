@@ -715,7 +715,7 @@ public sealed partial class MainWindow : Window
                 FontSize = _playerSettings.LyricFontSize,
                 TextWrapping = TextWrapping.Wrap,
                 TextAlignment = alignment,
-                FontStyle = _playerSettings.LyricItalic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal,
+                FontStyle = _playerSettings.LyricItalic ? global::Windows.UI.Text.FontStyle.Italic : global::Windows.UI.Text.FontStyle.Normal,
                 Foreground = BrushResource("BeansMutedBrush")
             };
             return item;
@@ -728,7 +728,7 @@ public sealed partial class MainWindow : Window
             FontSize = _playerSettings.LyricFontSize,
             TextWrapping = TextWrapping.Wrap,
             TextAlignment = alignment,
-            FontStyle = _playerSettings.LyricItalic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal,
+            FontStyle = _playerSettings.LyricItalic ? global::Windows.UI.Text.FontStyle.Italic : global::Windows.UI.Text.FontStyle.Normal,
             Foreground = BrushResource("BeansMutedBrush")
         };
         var clip = new RectangleGeometry { Rect = new Rect(0, 0, 0, 0) };
@@ -738,7 +738,7 @@ public sealed partial class MainWindow : Window
             FontSize = _playerSettings.LyricFontSize,
             TextWrapping = TextWrapping.Wrap,
             TextAlignment = alignment,
-            FontStyle = _playerSettings.LyricItalic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal,
+            FontStyle = _playerSettings.LyricItalic ? global::Windows.UI.Text.FontStyle.Italic : global::Windows.UI.Text.FontStyle.Normal,
             Foreground = LyricHighlightBrush(),
             Clip = clip
         };
@@ -755,14 +755,14 @@ public sealed partial class MainWindow : Window
         {
             if (LyricsList.Items[index] is not ListViewItem item) continue;
             item.Background = _playerSettings.LyricStyle == "contrast" && index == current
-                ? new SolidColorBrush(Windows.UI.Color.FromArgb(220, 0, 0, 0))
-                : new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+                ? new SolidColorBrush(global::Windows.UI.Color.FromArgb(220, 0, 0, 0))
+                : new SolidColorBrush(global::Windows.UI.Color.FromArgb(0, 0, 0, 0));
             item.Opacity = index == current ? 1 : 0.62;
             if (_playerSettings.LyricBlur && index != current) item.Opacity = 0.38;
             if (item.Content is TextBlock text)
             {
                 text.Foreground = index == current
-                    ? (_playerSettings.LyricStyle == "contrast" ? new SolidColorBrush(Windows.UI.Colors.White) : LyricHighlightBrush())
+                    ? (_playerSettings.LyricStyle == "contrast" ? new SolidColorBrush(global::Windows.UI.Colors.White) : LyricHighlightBrush())
                     : BrushResource("BeansMutedBrush");
             }
         }
@@ -781,7 +781,7 @@ public sealed partial class MainWindow : Window
     {
         var value = _playerSettings.LyricColor.TrimStart('#');
         if (uint.TryParse(value, System.Globalization.NumberStyles.HexNumber, null, out var rgb))
-            return new SolidColorBrush(Windows.UI.Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+            return new SolidColorBrush(global::Windows.UI.Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
         return BrushResource("BeansPrimaryBrush");
     }
 
@@ -985,9 +985,9 @@ public sealed partial class MainWindow : Window
     {
         LyricsList.Background = _playerSettings.LyricBackground switch
         {
-            "contrast" => new SolidColorBrush(Windows.UI.Color.FromArgb(205, 0, 0, 0)),
-            "soft" => new SolidColorBrush(Windows.UI.Color.FromArgb(70, 0, 0, 0)),
-            _ => new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0))
+            "contrast" => new SolidColorBrush(global::Windows.UI.Color.FromArgb(205, 0, 0, 0)),
+            "soft" => new SolidColorBrush(global::Windows.UI.Color.FromArgb(70, 0, 0, 0)),
+            _ => new SolidColorBrush(global::Windows.UI.Color.FromArgb(0, 0, 0, 0))
         };
     }
 
