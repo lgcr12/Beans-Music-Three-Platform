@@ -1,4 +1,5 @@
 using Beans.Core;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace Beans.Core.Tests;
@@ -32,6 +33,7 @@ public sealed class SyncOutboxTests
         }
         finally
         {
+            SqliteConnection.ClearAllPools();
             if (File.Exists(path)) File.Delete(path);
         }
     }

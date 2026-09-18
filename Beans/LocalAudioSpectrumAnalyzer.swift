@@ -38,15 +38,7 @@ final class LocalAudioSpectrumAnalyzer {
                 LocalAudioSpectrumAnalyzer.analyzer(for: tap).process(bufferList: bufferList, frames: Int(framesOut.pointee))
             }
         )
-        var createdTap: Unmanaged<MTAudioProcessingTap>?
-        guard MTAudioProcessingTapCreate(
-            kCFAllocatorDefault,
-            &callbacks,
-            kMTAudioProcessingTapCreationFlag_PostEffects,
-            &createdTap
-        ) == noErr, let createdTap else { return false }
-
-        let retainedTap = createdTap.takeRetainedValue()
+        guard let retainedTap = makeTap(callbacks: &callbacks) else { return false }
         let parameters = AVMutableAudioMixInputParameters(track: track)
         parameters.audioTapProcessor = retainedTap
         let mix = AVMutableAudioMix()
@@ -55,6 +47,28 @@ final class LocalAudioSpectrumAnalyzer {
         attachedItem = item
         tap = retainedTap
         return true
+    }
+
+    private func makeTap(callbacks: inout MTAudioProcessingTapCallbacks) -> MTAudioProcessingTap? {
+#if compiler(>=6.2)
+        var createdTap: MTAudioProcessingTap?
+        guard MTAudioProcessingTapCreate(
+            kCFAllocatorDefault,
+            &callbacks,
+            kMTAudioProcessingTapCreationFlag_PostEffects,
+            &createdTap
+        ) == noErr else { return nil }
+        return createdTap
+#else
+        var createdTap: Unmanaged<MTAudioProcessingTap>?
+        guard MTAudioProcessingTapCreate(
+            kCFAllocatorDefault,
+            &callbacks,
+            kMTAudioProcessingTapCreationFlag_PostEffects,
+            &createdTap
+        ) == noErr else { return nil }
+        return createdTap?.takeRetainedValue()
+#endif
     }
 
     func detach() {
