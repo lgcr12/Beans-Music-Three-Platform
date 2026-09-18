@@ -3,7 +3,7 @@
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          IgnorableNamespaces="uap rescap">
-  <Identity Name="BeansMusic.Internal" Publisher="CN=BeansMusic" Version="1.0.0.0" />
+  <Identity Name="BeansMusic.Internal" Publisher="CN=BeansMusic" Version="1.5.7.0" />
   <Properties>
     <DisplayName>Beans Music</DisplayName>
     <PublisherDisplayName>Beans Music</PublisherDisplayName>

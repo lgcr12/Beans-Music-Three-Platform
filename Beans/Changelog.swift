@@ -43,6 +43,22 @@ enum ChangelogStore {
 
     static let logs: [VersionLog] = [
         VersionLog(
+            id: "1.5.7",
+            version: "1.5.7",
+            title: "凭证检测、播放器效果与独立更新通道",
+            features: [
+                "新增 QQ 音乐与网易云凭证手动检测和每 24 小时自动检测",
+                "新增五种播放器视觉模式及四种歌词显示预设",
+                "iOS、Mac 和 Windows 使用独立更新通道，只接收本平台安装包",
+                "应用启动、回到前台和持续运行期间可检查更新，并支持忽略或稍后提醒"
+            ],
+            fixes: [
+                "修复 QQ 音乐登录有效但会员播放权限无法准确区分的问题",
+                "修复 Windows MSIX 编译与包清单兼容问题",
+                "修复其他平台发布时可能错误触发本机更新提示的问题"
+            ]
+        ),
+        VersionLog(
             id: "1.5.5",
             version: "1.5.5",
             title: "播放流畅度与发热优化",
