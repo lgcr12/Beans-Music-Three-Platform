@@ -459,13 +459,14 @@ final class PlayerManager: NSObject, ObservableObject {
             }
             guard let urlString, let url = URL(string: urlString) else {
                 let thirdPartyAttempted = resolvedThirdParty != nil
+                let resolvedQQPlaybackFailure = qqPlaybackFailure
                 await MainActor.run {
                     guard generation == self.loadGeneration else { return }
                     self.isBuffering = false
                     self.loadFailed = true
-                    if song.source == .qq, let qqPlaybackFailure {
-                        BeansLogger.shared.log("QQ 官方播放失败：\(song.name)｜\(qqPlaybackFailure.userMessage)", level: .error)
-                        ToastCenter.shared.show(qqPlaybackFailure.userMessage, duration: 4)
+                    if song.source == .qq, let resolvedQQPlaybackFailure {
+                        BeansLogger.shared.log("QQ 官方播放失败：\(song.name)｜\(resolvedQQPlaybackFailure.userMessage)", level: .error)
+                        ToastCenter.shared.show(resolvedQQPlaybackFailure.userMessage, duration: 4)
                     } else if song.source != .kugou, self.shouldLockOfficialOnly(song) {
                         BeansLogger.shared.log("播放失败：\(song.name) - 未找到原唱音源（官方受限），拒绝翻唱版本", level: .error)
                         ToastCenter.shared.show("《\(song.name)》未找到原唱音源（官方受限），已停止播放，拒绝翻唱版本")
