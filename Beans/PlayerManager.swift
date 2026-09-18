@@ -3,7 +3,7 @@ import MediaPlayer
 import SwiftUI
 import UIKit
 
-enum PlayMode: String, CaseIterable, Identifiable {
+enum PlayMode: String, CaseIterable, Identifiable, Codable {
     case sequential
     case repeatOne
     case shuffle
@@ -49,6 +49,7 @@ final class PlaybackClock: ObservableObject {
 }
 
 final class PlayerManager: NSObject, ObservableObject {
+    static let shared = PlayerManager()
     @Published var queue: [Song] = []
     @Published var currentIndex = 0
     @Published var isPlaying = false
@@ -76,6 +77,9 @@ final class PlayerManager: NSObject, ObservableObject {
     private var failureObserver: NSObjectProtocol?
     private var itemStatusObserver: NSKeyValueObservation?
     private var timeControlStatusObserver: NSKeyValueObservation?
+    /// QQ 官方 vkey 地址交给 AVPlayer 后仍可能因 CDN 节点或音质不可用而失败。
+    private var attemptedQQOfficialBRsBySong: [String: Set<String>] = [:]
+    private var playbackRecoveryInFlightSongKey: String?
     private var playbackConfirmed = false
     private var pendingThirdPartyVIPNotice: ThirdPartyVIPNotice?
     private var sessionConfigured = false
@@ -85,14 +89,28 @@ final class PlayerManager: NSObject, ObservableObject {
     private var lastCountedSongID: String?
     private var wasPlayingBeforeInterruption = false
     private var lastPublishedProgress: Double = -1
+    private var lastPlaybackStateSaveAt: Date = .distantPast
+    private var lastPlaybackSyncAt: Date = .distantPast
+    private var applyingRemoteSync = false
     private var lastNowPlayingArtworkKey: String?
     private static let nowPlayingArtworkCache = NSCache<NSURL, UIImage>()
 
     private let historyKey = "beans.history"
     private let countsKey = "beans.playcounts"
+    private let playbackStateKey = "beans.playback.state.v1"
     private let audioMixKey = "beans.audio.mixothers.v1"
     private let thirdPartyVIPNoticeKey = "beans.showThirdPartyVIPNotice"
     private let defaults = UserDefaults.standard
+
+    private struct PlaybackState: Codable {
+        var queue: [Song]
+        var currentIndex: Int
+        var progress: Double
+        var duration: Double
+        var playMode: PlayMode
+        var rate: Double
+        var savedAt: Date
+    }
 
     private struct ThirdPartyVIPNotice {
         let songKey: String
@@ -107,6 +125,7 @@ final class PlayerManager: NSObject, ObservableObject {
         super.init()
         loadHistory()
         loadPlayCounts()
+        loadPlaybackState()
         observeInterruptions()
         observeRouteChanges()
         setupRemoteCommands()
@@ -135,10 +154,14 @@ final class PlayerManager: NSObject, ObservableObject {
         queue.insert(song, at: min(insertAt, queue.count))
         buildPlayOrder()
         jumpToOrderPosition(min(insertAt, queue.count - 1))
+        persistCurrentPlaybackState()
     }
 
     func togglePlayPause() {
-        guard let player else { return }
+        guard let player else {
+            resumeRestoredSongIfNeeded()
+            return
+        }
         if player.timeControlStatus == .playing {
             player.pause()
             isPlaying = false
@@ -147,6 +170,7 @@ final class PlayerManager: NSObject, ObservableObject {
             isPlaying = true
         }
         updateNowPlaying()
+        persistCurrentPlaybackState()
     }
 
     func next(manual: Bool = true) {
@@ -157,6 +181,7 @@ final class PlayerManager: NSObject, ObservableObject {
         }
         advance()
         loadCurrent()
+        persistCurrentPlaybackState()
     }
 
     func previous() {
@@ -169,6 +194,7 @@ final class PlayerManager: NSObject, ObservableObject {
             currentIndex = (currentIndex - 1 + queue.count) % queue.count
         }
         loadCurrent()
+        persistCurrentPlaybackState()
     }
 
     func seek(to seconds: Double) {
@@ -187,6 +213,7 @@ final class PlayerManager: NSObject, ObservableObject {
             }
         }
         updateNowPlaying()
+        persistCurrentPlaybackState()
     }
 
     func seekBy(_ delta: Double) {
@@ -200,6 +227,7 @@ final class PlayerManager: NSObject, ObservableObject {
         case .shuffle: playMode = .sequential
         }
         buildPlayOrder()
+        persistCurrentPlaybackState()
     }
 
     func setRate(_ newRate: Double) {
@@ -208,11 +236,13 @@ final class PlayerManager: NSObject, ObservableObject {
             player?.playImmediately(atRate: Float(newRate))
         }
         updateNowPlaying()
+        persistCurrentPlaybackState()
     }
 
     func playQueueIndex(_ index: Int) {
         guard queue.indices.contains(index) else { return }
         jumpToOrderPosition(index)
+        persistCurrentPlaybackState()
     }
 
     func removeFromQueue(at index: Int) {
@@ -226,6 +256,7 @@ final class PlayerManager: NSObject, ObservableObject {
             loadCurrent()
         }
         buildPlayOrder(avoiding: removedID)
+        persistCurrentPlaybackState()
     }
 
     func retryCurrent() {
@@ -235,6 +266,7 @@ final class PlayerManager: NSObject, ObservableObject {
 
     /// 删除单条播放历史（含持久化）
     func removeHistory(at offsets: IndexSet) {
+        let removed = offsets.compactMap { history.indices.contains($0) ? history[$0] : nil }
         for index in offsets.sorted(by: >) {
             guard history.indices.contains(index) else { continue }
             history.remove(at: index)
@@ -242,12 +274,17 @@ final class PlayerManager: NSObject, ObservableObject {
         if let data = try? JSONEncoder().encode(history) {
             defaults.set(data, forKey: historyKey)
         }
+        for song in removed { queueHistorySync(song, deleted: true) }
+        persistCurrentPlaybackState()
     }
 
     /// 清空播放历史（含持久化）
     func clearHistory() {
+        let removed = history
         history.removeAll()
         defaults.removeObject(forKey: historyKey)
+        for song in removed { queueHistorySync(song, deleted: true) }
+        persistCurrentPlaybackState()
     }
 
     /// 清空队列，仅保留当前歌曲
@@ -261,6 +298,7 @@ final class PlayerManager: NSObject, ObservableObject {
             currentIndex = 0
         }
         buildPlayOrder()
+        persistCurrentPlaybackState()
     }
 
     // MARK: - 睡眠定时
@@ -298,6 +336,7 @@ final class PlayerManager: NSObject, ObservableObject {
         player?.pause()
         isPlaying = false
         updateNowPlaying()
+        persistCurrentPlaybackState()
     }
 
     // MARK: - 播放顺序
@@ -338,6 +377,7 @@ final class PlayerManager: NSObject, ObservableObject {
             orderPosition = index
         }
         loadCurrent()
+        persistCurrentPlaybackState()
     }
 
     // MARK: - 播放
@@ -347,12 +387,15 @@ final class PlayerManager: NSObject, ObservableObject {
         player?.playImmediately(atRate: Float(rate))
         isPlaying = true
         updateNowPlaying()
+        persistCurrentPlaybackState()
     }
 
-    private func loadCurrent() {
+    private func loadCurrent(resumeAt savedProgress: Double? = nil) {
         guard let song = currentSong else { return }
         loadGeneration += 1
         let generation = loadGeneration
+        attemptedQQOfficialBRsBySong.removeValue(forKey: song.identityKey)
+        playbackRecoveryInFlightSongKey = nil
         // 切歌立即暂停旧音频，避免新歌加载期间旧歌继续播放造成“切歌卡住”感
         player?.pause()
         duration = song.duration
@@ -364,6 +407,8 @@ final class PlayerManager: NSObject, ObservableObject {
         Task {
             var urlString: String?
             var resolvedThirdParty: UnblockService.Resolved?
+            var qqOfficialBR: String?
+            var attemptedQQOfficialBRs: [String] = []
             // 版权受限歌手（周杰伦）：允许第三方音源，但启用严格模式（歌名+歌手+时长三重匹配原唱，校验不过拒绝，绝不播放翻唱）
             // 免费听歌（灰色歌曲解锁）总开关：默认开启，优先使用内置预设音源兜底。
             let enableUnblock = defaults.object(forKey: "beans.enableUnblock") as? Bool ?? true
@@ -377,9 +422,26 @@ final class PlayerManager: NSObject, ObservableObject {
                 }
             } else if song.source == .qq, let mid = song.qqMid {
                 // 是否有播放权益以 vkey 实际返回为准；会员接口识别失败时也必须尝试官方地址。
-                urlString = try? await QQMusicAPI.shared.songURL(songmid: mid, mediaMid: song.qqMediaMid)
+                let officialResult = try? await QQMusicAPI.shared.songURLResult(
+                    songmid: mid,
+                    mediaMid: song.qqMediaMid,
+                    quality: quality
+                )
+                urlString = officialResult?.url
+                qqOfficialBR = officialResult?.br
+                attemptedQQOfficialBRs = officialResult?.attemptedBRs ?? []
+                let resolvedQQOfficialBR = qqOfficialBR
+                let resolvedAttemptedQQOfficialBRs = attemptedQQOfficialBRs
                 if urlString == nil {
                     (urlString, resolvedThirdParty) = await qqFallback(song: song, quality: quality, enableUnblock: enableUnblock, strict: strictUnlock)
+                }
+                await MainActor.run {
+                    guard generation == self.loadGeneration,
+                          self.currentSong?.identityKey == song.identityKey else { return }
+                    if let resolvedQQOfficialBR {
+                        self.attemptedQQOfficialBRsBySong[song.identityKey, default: []].insert(resolvedQQOfficialBR)
+                    }
+                    self.attemptedQQOfficialBRsBySong[song.identityKey, default: []].formUnion(resolvedAttemptedQQOfficialBRs)
                 }
             } else {
                 (urlString, resolvedThirdParty) = await neteaseResolve(song: song, quality: quality, enableUnblock: enableUnblock, strict: strictUnlock)
@@ -388,7 +450,7 @@ final class PlayerManager: NSObject, ObservableObject {
                 let notice = self.thirdPartyVIPNotice(for: song, sourceTitle: resolved.sourceTitle)
                 await MainActor.run {
                     guard generation == self.loadGeneration else { return }
-                    self.setupPlayer(url: resolved.url, thirdPartyVIPNotice: notice)
+                    self.setupPlayer(url: resolved.url, resumeAt: savedProgress, thirdPartyVIPNotice: notice)
                 }
                 return
             }
@@ -404,13 +466,23 @@ final class PlayerManager: NSObject, ObservableObject {
                     } else {
                         let hint = thirdPartyAttempted ? "（第三方音源尝试后无结果）" : "（第三方音源未命中）"
                         BeansLogger.shared.log("播放失败：\(song.name) - 无法解析播放地址\(hint)｜音质=\(quality.level) 免费听歌=\(enableUnblock ? "开" : "关")", level: .error)
+                        if song.source == .qq, QQMusicAuth.shared.isLoggedIn, !QQMusicAuth.shared.hasPlaybackCredential {
+                            ToastCenter.shared.show("QQ 音乐缺少会员播放凭证，请到账号中心重新授权")
+                        }
                     }
                 }
                 return
             }
+            let resolvedQQOfficialBR = qqOfficialBR
+            let resolvedAttemptedQQOfficialBRs = attemptedQQOfficialBRs
             await MainActor.run {
                 guard generation == self.loadGeneration else { return }
-                self.setupPlayer(url: url)
+                self.setupPlayer(
+                    url: url,
+                    resumeAt: savedProgress,
+                    qqOfficialBR: resolvedQQOfficialBR,
+                    attemptedQQOfficialBRs: resolvedAttemptedQQOfficialBRs
+                )
             }
         }
     }
@@ -559,8 +631,72 @@ final class PlayerManager: NSObject, ObservableObject {
         return nil
     }
 
+    @discardableResult
+    private func retryQQOfficialIfNeeded() -> Bool {
+        guard let song = currentSong,
+              song.source == .qq,
+              let mid = song.qqMid,
+              !mid.isEmpty else { return false }
+        if playbackRecoveryInFlightSongKey == song.identityKey { return true }
 
-    private func setupPlayer(url: URL, thirdPartyVIPNotice: ThirdPartyVIPNotice? = nil) {
+        let candidates = ["F000", "M800", "M500", "C400"]
+        let attempted = attemptedQQOfficialBRsBySong[song.identityKey] ?? []
+        guard let nextBR = candidates.first(where: { !attempted.contains($0) }) else { return false }
+        attemptedQQOfficialBRsBySong[song.identityKey, default: []].insert(nextBR)
+        playbackRecoveryInFlightSongKey = song.identityKey
+        let generation = loadGeneration
+        let resume = progress
+        BeansLogger.shared.log("QQ 官方地址加载失败，继续切换音质：歌曲=\(song.name)｜BR=\(nextBR)", level: .debug)
+
+        Task {
+            let urlString = try? await QQMusicAPI.shared.songURL(
+                songmid: mid,
+                mediaMid: song.qqMediaMid,
+                br: nextBR
+            )
+            await MainActor.run {
+                guard generation == self.loadGeneration,
+                      self.currentSong?.identityKey == song.identityKey else {
+                    if self.playbackRecoveryInFlightSongKey == song.identityKey {
+                        self.playbackRecoveryInFlightSongKey = nil
+                    }
+                    return
+                }
+                self.playbackRecoveryInFlightSongKey = nil
+                if let urlString, let url = URL(string: urlString) {
+                    self.setupPlayer(
+                        url: url,
+                        resumeAt: resume,
+                        qqOfficialBR: nextBR
+                    )
+                } else if self.retryQQOfficialIfNeeded() {
+                    return
+                } else {
+                    self.loadFailed = true
+                    self.isBuffering = false
+                    self.isPlaying = false
+                    BeansLogger.shared.log("QQ 官方音质均不可播放：\(song.name)", level: .error)
+                }
+            }
+        }
+        return true
+    }
+
+
+    private func setupPlayer(
+        url: URL,
+        resumeAt savedProgress: Double? = nil,
+        thirdPartyVIPNotice: ThirdPartyVIPNotice? = nil,
+        qqOfficialBR: String? = nil,
+        attemptedQQOfficialBRs: [String] = []
+    ) {
+        guard let loadedSong = currentSong else { return }
+        if loadedSong.source == .qq {
+            if let qqOfficialBR {
+                attemptedQQOfficialBRsBySong[loadedSong.identityKey, default: []].insert(qqOfficialBR)
+            }
+            attemptedQQOfficialBRsBySong[loadedSong.identityKey, default: []].formUnion(attemptedQQOfficialBRs)
+        }
         configureAudioSession()
         UIApplication.shared.beginReceivingRemoteControlEvents()
         removeCurrentObservers()
@@ -568,10 +704,11 @@ final class PlayerManager: NSObject, ObservableObject {
         // QQ 官方 CDN（isure.stream.qqmusic.qq.com 等）要求 UA/Referer 请求头，
         // 否则裸 GET 会被拒绝（403），导致播放成功却无声、进度条不动。
         let item: AVPlayerItem
-        if url.host?.contains("qq.com") == true {
+        if isQQAudioHost(url.host) {
             var headers = [
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0",
                 "Referer": "https://y.qq.com/",
+                "Origin": "https://y.qq.com",
             ]
             let cookie = QQMusicAuth.shared.cookieHeader
             if !cookie.isEmpty { headers["Cookie"] = cookie }
@@ -599,10 +736,15 @@ final class PlayerManager: NSObject, ObservableObject {
         playbackConfirmed = false
         itemStatusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             guard let self, self.player === player, item.status == .failed else { return }
-            self.loadFailed = true
-            self.isBuffering = false
-            self.isPlaying = false
-            BeansLogger.shared.log("播放地址加载失败：\(item.error?.localizedDescription ?? "未知错误")", level: .error)
+            DispatchQueue.main.async {
+                guard self.player === player,
+                      self.currentSong?.identityKey == loadedSong.identityKey else { return }
+                if self.retryQQOfficialIfNeeded() { return }
+                self.loadFailed = true
+                self.isBuffering = false
+                self.isPlaying = false
+                BeansLogger.shared.log("播放地址加载失败：\(item.error?.localizedDescription ?? "未知错误")", level: .error)
+            }
         }
         timeControlStatusObserver = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
             guard let self, self.player === player else { return }
@@ -612,6 +754,11 @@ final class PlayerManager: NSObject, ObservableObject {
                 BeansLogger.shared.log("▶ 播放成功：\(song.name)｜域名=\(url.host ?? "?")", level: .info)
             }
             self.showPendingThirdPartyVIPNoticeIfNeeded()
+        }
+        if let savedProgress, savedProgress > 1 {
+            let resumeTime = CMTime(seconds: savedProgress, preferredTimescale: 600)
+            player.seek(to: resumeTime, toleranceBefore: .zero, toleranceAfter: .zero)
+            progress = savedProgress
         }
         player.playImmediately(atRate: Float(rate))
         isPlaying = true
@@ -637,6 +784,9 @@ final class PlayerManager: NSObject, ObservableObject {
                     self.duration = seconds
                 }
             }
+            if Date().timeIntervalSince(self.lastPlaybackStateSaveAt) > 5 {
+                self.persistCurrentPlaybackState()
+            }
             let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
             if waiting != self.isBuffering {
                 self.isBuffering = waiting
@@ -649,14 +799,26 @@ final class PlayerManager: NSObject, ObservableObject {
             } else {
                 self.advance()
                 self.loadCurrent()
+                self.persistCurrentPlaybackState()
             }
         }
         failureObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            self?.loadFailed = true
-            self?.isBuffering = false
+            guard let self,
+                  self.player?.currentItem === item,
+                  self.currentSong?.identityKey == loadedSong.identityKey else { return }
+            if self.retryQQOfficialIfNeeded() { return }
+            self.loadFailed = true
+            self.isBuffering = false
             BeansLogger.shared.log("播放中断：AVPlayerItem 播放失败（解码或网络错误）", level: .error)
         }
         updateNowPlaying()
+    }
+
+    private func isQQAudioHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        return host.contains("qq.com")
+            || host.contains("qqmusic")
+            || host.contains("ptqqmusic")
     }
 
     private func removeCurrentObservers() {
@@ -728,6 +890,15 @@ final class PlayerManager: NSObject, ObservableObject {
             sessionConfigured = true
         } else {
             sessionConfigured = false
+        }
+    }
+
+    func reactivateAudioSessionIfNeeded() {
+        guard currentSong != nil else { return }
+        sessionConfigured = false
+        configureAudioSession()
+        if isPlaying, player?.timeControlStatus != .playing {
+            player?.playImmediately(atRate: Float(rate))
         }
     }
 
@@ -813,6 +984,7 @@ final class PlayerManager: NSObject, ObservableObject {
         if let data = try? JSONEncoder().encode(history) {
             defaults.set(data, forKey: historyKey)
         }
+        queueHistorySync(song)
     }
 
     private func loadHistory() {
@@ -826,12 +998,110 @@ final class PlayerManager: NSObject, ObservableObject {
         if let data = try? JSONEncoder().encode(playCounts) {
             defaults.set(data, forKey: countsKey)
         }
+        queueHistorySync(song)
     }
 
     private func loadPlayCounts() {
         guard let data = defaults.data(forKey: countsKey),
               let saved = try? JSONDecoder().decode([String: Int].self, from: data) else { return }
         playCounts = saved
+    }
+
+    // MARK: - 播放状态恢复
+
+    func persistCurrentPlaybackState() {
+        guard !queue.isEmpty else {
+            defaults.removeObject(forKey: playbackStateKey)
+            return
+        }
+        let state = PlaybackState(
+            queue: queue,
+            currentIndex: min(max(currentIndex, 0), queue.count - 1),
+            progress: max(0, progress),
+            duration: max(duration, currentSong?.duration ?? 0),
+            playMode: playMode,
+            rate: rate,
+            savedAt: Date()
+        )
+        if let data = try? JSONEncoder().encode(state) {
+            defaults.set(data, forKey: playbackStateKey)
+            lastPlaybackStateSaveAt = state.savedAt
+        }
+        if !applyingRemoteSync, Date().timeIntervalSince(lastPlaybackSyncAt) >= 30 {
+            lastPlaybackSyncAt = Date()
+            let payload = BeansPlaybackSyncPayload(
+                queue: state.queue,
+                currentIndex: state.currentIndex,
+                progress: state.progress,
+                duration: state.duration,
+                playMode: state.playMode,
+                rate: state.rate,
+                savedAt: state.savedAt
+            )
+            Task { @MainActor in
+                BeansAccountStore.shared.queueSync(entityType: "playback", entityID: "current", payload: payload)
+            }
+        }
+    }
+
+    private func loadPlaybackState() {
+        guard let data = defaults.data(forKey: playbackStateKey),
+              let state = try? JSONDecoder().decode(PlaybackState.self, from: data),
+              !state.queue.isEmpty else { return }
+        queue = state.queue
+        currentIndex = min(max(state.currentIndex, 0), state.queue.count - 1)
+        progress = max(0, state.progress)
+        duration = max(state.duration, queue[currentIndex].duration)
+        playMode = state.playMode
+        rate = state.rate
+        lastPlaybackStateSaveAt = state.savedAt
+        buildPlayOrder()
+        updateNowPlaying()
+    }
+
+    func applyRemoteHistory(_ value: BeansHistorySyncPayload, deleted: Bool) {
+        applyingRemoteSync = true
+        defer { applyingRemoteSync = false }
+        history.removeAll { $0.identityKey == value.song.identityKey }
+        if deleted {
+            playCounts.removeValue(forKey: value.song.identityKey)
+        } else {
+            history.insert(value.song, at: 0)
+            history = Array(history.prefix(50))
+            playCounts[value.song.identityKey] = max(playCounts[value.song.identityKey, default: 0], value.playCount)
+        }
+        if let data = try? JSONEncoder().encode(history) { defaults.set(data, forKey: historyKey) }
+        if let data = try? JSONEncoder().encode(playCounts) { defaults.set(data, forKey: countsKey) }
+    }
+
+    func applyRemotePlayback(_ value: BeansPlaybackSyncPayload) {
+        guard value.savedAt > lastPlaybackStateSaveAt, !value.queue.isEmpty else { return }
+        applyingRemoteSync = true
+        queue = value.queue
+        currentIndex = min(max(value.currentIndex, 0), value.queue.count - 1)
+        progress = max(0, value.progress)
+        duration = max(value.duration, value.queue[currentIndex].duration)
+        playMode = value.playMode
+        rate = value.rate
+        lastPlaybackStateSaveAt = value.savedAt
+        buildPlayOrder()
+        applyingRemoteSync = false
+        updateNowPlaying()
+    }
+
+    private func queueHistorySync(_ song: Song, deleted: Bool = false) {
+        guard !applyingRemoteSync else { return }
+        let payload = BeansHistorySyncPayload(song: song, playedAt: Date(), playCount: playCounts[song.identityKey, default: 0])
+        let id = "\(song.source.rawValue):\(BeansAccountStore.stableEntitySuffix(song.identityKey))"
+        Task { @MainActor in
+            BeansAccountStore.shared.queueSync(entityType: "history", entityID: id, payload: payload, deleted: deleted)
+        }
+    }
+
+    private func resumeRestoredSongIfNeeded() {
+        guard currentSong != nil else { return }
+        reactivateAudioSessionIfNeeded()
+        loadCurrent(resumeAt: progress)
     }
 
     /// 听歌排行：按播放次数排序的前几首
@@ -887,15 +1157,22 @@ final class PlayerManager: NSObject, ObservableObject {
         center.togglePlayPauseCommand.isEnabled = true
         center.changePlaybackPositionCommand.isEnabled = true
         center.playCommand.addTarget { [weak self] _ in
-            self?.player?.playImmediately(atRate: Float(self?.rate ?? 1.0))
-            self?.isPlaying = true
-            self?.updateNowPlaying()
+            guard let self else { return .commandFailed }
+            if let player = self.player {
+                player.playImmediately(atRate: Float(self.rate))
+                self.isPlaying = true
+                self.updateNowPlaying()
+                self.persistCurrentPlaybackState()
+            } else {
+                self.resumeRestoredSongIfNeeded()
+            }
             return .success
         }
         center.pauseCommand.addTarget { [weak self] _ in
             self?.player?.pause()
             self?.isPlaying = false
             self?.updateNowPlaying()
+            self?.persistCurrentPlaybackState()
             return .success
         }
         center.nextTrackCommand.addTarget { [weak self] _ in

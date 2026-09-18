@@ -4,9 +4,10 @@ import UIKit
 @main
 struct BeansApp: App {
     @StateObject private var auth = AuthStore()
-    @StateObject private var player = PlayerManager()
+    @StateObject private var player = PlayerManager.shared
     @StateObject private var theme = ThemeStore.shared
     @StateObject private var favorites = FavoritesStore.shared
+    @StateObject private var beansAccount = BeansAccountStore.shared
     /// 免责声明确认状态：未确认前主界面在模糊层下方可见，确认后移除门禁
     @AppStorage("beans.disclaimerAccepted") private var disclaimerAccepted = false
 
@@ -28,6 +29,7 @@ struct BeansApp: App {
                     .environmentObject(player)
                     .environmentObject(theme)
                     .environmentObject(favorites)
+                    .environmentObject(beansAccount)
                 // 未确认前展示首次使用引导页（分页引导 + 免责确认）
                 if !disclaimerAccepted {
                     OnboardingView { disclaimerAccepted = true }

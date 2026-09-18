@@ -1,0 +1,33 @@
+<Application
+    x:Class="Beans.Windows.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Beans.Windows">
+    <Application.Resources>
+        <local:TypographyService x:Key="BeansTypography" />
+        <Color x:Key="BeansBackgroundColor">#071F1C</Color>
+        <Color x:Key="BeansSurfaceColor">#CC123C36</Color>
+        <Color x:Key="BeansPrimaryColor">#55E1B2</Color>
+        <Color x:Key="BeansSecondaryColor">#E6B85C</Color>
+        <Color x:Key="BeansTextColor">#F1FFF9</Color>
+        <Color x:Key="BeansMutedColor">#A9C8BE</Color>
+        <SolidColorBrush x:Key="BeansBackgroundBrush" Color="{ThemeResource BeansBackgroundColor}" />
+        <SolidColorBrush x:Key="BeansSurfaceBrush" Color="{ThemeResource BeansSurfaceColor}" />
+        <SolidColorBrush x:Key="BeansPrimaryBrush" Color="{ThemeResource BeansPrimaryColor}" />
+        <SolidColorBrush x:Key="BeansSecondaryBrush" Color="{ThemeResource BeansSecondaryColor}" />
+        <SolidColorBrush x:Key="BeansTextBrush" Color="{ThemeResource BeansTextColor}" />
+        <SolidColorBrush x:Key="BeansMutedBrush" Color="{ThemeResource BeansMutedColor}" />
+        <Style TargetType="TextBlock">
+            <Setter Property="FontSize" Value="{Binding BodySize, Source={StaticResource BeansTypography}, Mode=OneWay}" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="FontSize" Value="{Binding BodySize, Source={StaticResource BeansTypography}, Mode=OneWay}" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="FontSize" Value="{Binding BodySize, Source={StaticResource BeansTypography}, Mode=OneWay}" />
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="FontSize" Value="{Binding BodySize, Source={StaticResource BeansTypography}, Mode=OneWay}" />
+        </Style>
+    </Application.Resources>
+</Application>

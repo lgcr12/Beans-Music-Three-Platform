@@ -16,7 +16,7 @@ final class QQMusicAuth: ObservableObject {
     private var qrsig = ""
 
     private let defaults = UserDefaults.standard
-    private let cookieKey = "beans.qqmusic.cookie.v1"
+    private let legacyCookieKey = "beans.qqmusic.cookie.v1"
     private let nickKey = "beans.qqmusic.nickname.v1"
     private let vipKey = "beans.qqmusic.vip.v1"
     private let session: URLSession
@@ -28,11 +28,19 @@ final class QQMusicAuth: ObservableObject {
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
         session = URLSession(configuration: config, delegate: redirectBlocker, delegateQueue: nil)
-        if let saved = defaults.dictionary(forKey: cookieKey) as? [String: String], !saved.isEmpty {
+        if let saved: [String: String] = BeansSecureStore.shared.codable([String: String].self, for: BeansSecureKey.qqCookies), !saved.isEmpty {
             cookies = saved
             isLoggedIn = true
             nickname = defaults.string(forKey: nickKey) ?? ""
             vipBadge = defaults.string(forKey: vipKey)
+        } else if let legacy = defaults.dictionary(forKey: legacyCookieKey) as? [String: String], !legacy.isEmpty {
+            cookies = legacy
+            isLoggedIn = true
+            nickname = defaults.string(forKey: nickKey) ?? ""
+            vipBadge = defaults.string(forKey: vipKey)
+            if BeansSecureStore.shared.setCodable(legacy, for: BeansSecureKey.qqCookies) {
+                defaults.removeObject(forKey: legacyCookieKey)
+            }
         }
     }
 
@@ -55,11 +63,13 @@ final class QQMusicAuth: ObservableObject {
         return key.isEmpty ? 5381 : Self.hash5381(key)
     }
 
-    /// 播放接口 authst。QQ vkey 优先识别音乐域凭证，p_skey 仅作旧登录态兜底。
+    /// 播放接口 authst。普通 QQ 网页的 p_skey 不是音乐播放密钥，不能填入 authst。
     var loginKey: String {
         cookies["qm_keyst"] ?? cookies["qqmusic_key"] ?? cookies["music_key"]
-            ?? cookies["wxskey"] ?? cookies["musickey"] ?? cookies["p_skey"] ?? ""
+            ?? cookies["wxskey"] ?? cookies["musickey"] ?? ""
     }
+
+    var hasPlaybackCredential: Bool { !loginKey.isEmpty }
 
     /// 发给 u.y.qq.com 的 Cookie 串（含 qqmusic_key 时 VIP 歌曲播放成功率最高）
     var cookieHeader: String {
@@ -76,7 +86,8 @@ final class QQMusicAuth: ObservableObject {
         isLoggedIn = false
         nickname = ""
         vipBadge = nil
-        defaults.removeObject(forKey: cookieKey)
+        BeansSecureStore.shared.remove(BeansSecureKey.qqCookies)
+        defaults.removeObject(forKey: legacyCookieKey)
         defaults.removeObject(forKey: nickKey)
         defaults.removeObject(forKey: vipKey)
     }
@@ -86,10 +97,20 @@ final class QQMusicAuth: ObservableObject {
     /// 网页登录（WKWebView 读取）或手动粘贴 Cookie 导入登录态
     func importCookies(_ dict: [String: String], nickname: String?) {
         guard !dict.isEmpty else { return }
-        cookies = dict
+        var imported = dict
+        if imported["uin"] == nil, let pUin = imported["p_uin"], !pUin.isEmpty {
+            imported["uin"] = pUin
+        }
+        let oldUin = uin
+        let newUin = (imported["uin"] ?? "").replacingOccurrences(of: "o", with: "")
+        if !oldUin.isEmpty, oldUin != "0", oldUin == newUin {
+            cookies.merge(imported) { _, new in new }
+        } else {
+            cookies = imported
+        }
         isLoggedIn = true
         self.nickname = nickname ?? Self.fallbackNickname(dict)
-        defaults.set(cookies, forKey: cookieKey)
+        persistCookies()
         defaults.set(self.nickname, forKey: nickKey)
         NotificationCenter.default.post(name: .beansQQLoginDidUpdate, object: nil)
         // 登录成功后异步刷新会员标识与真实昵称（失败静默降级）
@@ -99,12 +120,36 @@ final class QQMusicAuth: ObservableObject {
 
     /// Cookie 是否包含有效登录态（uin 非空且带任一有效凭证）
     func hasValidLogin(_ dict: [String: String]) -> Bool {
-        guard let uin = dict["uin"], !uin.isEmpty, uin != "0" else { return false }
+        let uin = (dict["uin"] ?? dict["p_uin"] ?? "").replacingOccurrences(of: "o", with: "")
+        guard !uin.isEmpty, uin != "0" else { return false }
         let credentialKeys = ["p_skey", "skey", "qqmusic_key", "qm_keyst", "music_key", "wxskey", "musickey", "p_uin"]
         return credentialKeys.contains { key in
             guard let value = dict[key] else { return false }
             return !value.isEmpty
         }
+    }
+
+    func credentialSnapshot() -> [String: String] { cookies }
+
+    func restoreCredentialSnapshot(_ snapshot: [String: String]) {
+        guard hasValidLogin(snapshot) else { return }
+        importCookies(snapshot, nickname: nil)
+    }
+
+    /// 从保险库恢复 Cookie 后必须向 QQ 资料接口做一次真实校验，避免把过期凭证显示成已连接。
+    func validateRestoredCredential() async throws -> Bool {
+        guard isLoggedIn, !uin.isEmpty, uin != "0" else { return false }
+        let urlString = "https://c.y.qq.com/rsc/fcgi-bin/fcg_get_profile_homepage.fcg?cid=205360838&userid=\(uin)&reqfrom=1&g_tk=5381&loginUin=\(uin)&hostUin=0&format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0"
+        guard let url = URL(string: urlString) else { return false }
+        var request = URLRequest(url: url)
+        request.setValue(Self.ua, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        let code = object["code"] as? Int ?? -1
+        return code == 0 || code == 1000
     }
 
     /// 网页登录关注的 Cookie 名（WKWebView 读取时按此过滤）
@@ -219,7 +264,7 @@ final class QQMusicAuth: ObservableObject {
             }
             nickname = parsed.nickname
             isLoggedIn = true
-            defaults.set(cookies, forKey: cookieKey)
+            persistCookies()
             defaults.set(nickname, forKey: nickKey)
             Task { await self.fetchVIPStatus() }
             Task { await self.fetchProfile() }
@@ -335,10 +380,10 @@ final class QQMusicAuth: ObservableObject {
 
     // MARK: - 会员状态
 
-    /// 拉取 QQ 音乐会员标识（逆向自 musicu.fcg music.member.getVipInfo，仅供学习交流）。
+    /// 从 QQ 音乐登录用户资料读取会员标识。
     /// 携带登录 Cookie 请求，接口字段各家实现略有差异，这里做递归宽松解析：
     /// - 命中 svip 相关字段且数值 > 0 -> SVIP
-    /// - 命中 vipType / vip_type 且数值 > 0 -> VIP
+    /// - 命中常见 VIP 状态、类型或等级字段且数值 > 0 -> VIP
     /// - 请求失败或字段缺失 -> nil（不阻塞登录，也不弹错误）
     @MainActor
     func fetchVIPStatus() async {
@@ -353,16 +398,20 @@ final class QQMusicAuth: ObservableObject {
             let payload: [String: Any] = [
                 "comm": ["ct": 24, "cv": 0, "uin": uin],
                 "req_0": [
-                    "module": "music.member.getVipInfo",
-                    "method": "get_vip_info",
-                    "param": ["uin": uin]
+                    "module": "music.UserInfo.userInfoServer",
+                    "method": "GetLoginUserInfo",
+                    "param": [:]
                 ]
             ]
             let json = try await musicu(payload)
-            let badge = Self.parseVIPBadge(json)
+            var badge = Self.parseVIPBadge(json)
+            if badge == nil {
+                badge = try? await profileVIPBadge()
+            }
             if badge != vipBadge {
                 vipBadge = badge
-                defaults.set(badge ?? "", forKey: vipKey)
+                if let badge { defaults.set(badge, forKey: vipKey) }
+                else { defaults.removeObject(forKey: vipKey) }
             }
         } catch {
             // 尽力而为：接口波动不影响登录与播放
@@ -370,18 +419,34 @@ final class QQMusicAuth: ObservableObject {
     }
 
     /// 递归扫描响应 JSON 中的会员字段（兼容不同返回结构）
-    private static func parseVIPBadge(_ json: [String: Any]) -> String? {
+    static func parseVIPBadge(_ json: [String: Any]) -> String? {
         var vipLevel = 0
         var svipFlag = false
+        let vipKeys: Set<String> = [
+            "vip", "isvip", "is_vip", "m_vip", "musicvip", "music_vip", "greenvip", "green_vip",
+            "viptype", "vip_type", "viplevel", "vip_level", "vipstatus", "vip_status"
+        ]
+        let svipKeys: Set<String> = [
+            "svip", "issvip", "is_svip", "supervip", "super_vip", "luxuryvip", "luxury_vip"
+        ]
+        func positiveNumber(_ value: Any) -> Int? {
+            if let bool = value as? Bool { return bool ? 1 : 0 }
+            if let number = value as? NSNumber { return number.intValue }
+            if let string = value as? String {
+                let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if ["true", "yes", "active", "valid", "vip", "svip"].contains(normalized) { return 1 }
+                return Int(normalized)
+            }
+            return nil
+        }
         func walk(_ value: Any) {
             if let dict = value as? [String: Any] {
                 for (key, v) in dict {
-                    let lower = key.lowercased()
-                    if lower.contains("svip") {
-                        if let n = v as? Int, n > 0 { svipFlag = true }
-                        if let b = v as? Bool, b { svipFlag = true }
-                    } else if lower == "viptype" || lower == "vip_type" {
-                        if let n = v as? Int, n > 0 { vipLevel = max(vipLevel, n) }
+                    let lower = key.lowercased().replacingOccurrences(of: "-", with: "_")
+                    if svipKeys.contains(lower), let n = positiveNumber(v), n > 0 {
+                        svipFlag = true
+                    } else if vipKeys.contains(lower), let n = positiveNumber(v), n > 0 {
+                        vipLevel = max(vipLevel, n)
                     }
                     walk(v)
                 }
@@ -393,6 +458,19 @@ final class QQMusicAuth: ObservableObject {
         if svipFlag || vipLevel >= 11 { return "SVIP" }
         if vipLevel > 0 { return "VIP" }
         return nil
+    }
+
+    private func profileVIPBadge() async throws -> String? {
+        let urlString = "https://c.y.qq.com/rsc/fcgi-bin/fcg_get_profile_homepage.fcg?cid=205360838&userid=\(uin)&reqfrom=1&g_tk=\(gtk)&loginUin=\(uin)&hostUin=0&format=json&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0"
+        guard let url = URL(string: urlString) else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue(Self.ua, forHTTPHeaderField: "User-Agent")
+        request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return Self.parseVIPBadge(object)
     }
 
     /// 拉取 QQ 音乐真实昵称（fcg_get_profile_homepage；扫码/网页/Cookie 登录后调用，失败静默保留旧昵称）
@@ -485,6 +563,12 @@ final class QQMusicAuth: ObservableObject {
         let setCookies = HTTPCookie.cookies(withResponseHeaderFields: headers, for: http.url!)
         for cookie in setCookies where !cookie.name.isEmpty {
             cookies[cookie.name] = cookie.value
+        }
+    }
+
+    private func persistCookies() {
+        if BeansSecureStore.shared.setCodable(cookies, for: BeansSecureKey.qqCookies) {
+            defaults.removeObject(forKey: legacyCookieKey)
         }
     }
 

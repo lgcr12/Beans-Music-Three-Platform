@@ -433,3 +433,206 @@ struct AddToLocalPlaylistSheet: View {
         dismiss()
     }
 }
+
+
+// MARK: - 云端歌单导入本地聚合歌单
+
+struct ImportCloudPlaylistToLocalSheet: View {
+    @ObservedObject private var store = LocalLibraryStore.shared
+    @Environment(\.dismiss) private var dismiss
+
+    let playlist: Playlist
+    var initialTracks: [Song] = []
+
+    @State private var tracks: [Song] = []
+    @State private var loading = true
+    @State private var importing = false
+    @State private var errorMessage: String?
+    @State private var newName = ""
+    @State private var message: String?
+
+    var body: some View {
+        BeansNavigationStack {
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            CoverImage(url: playlist.coverURL, size: 52, cornerRadius: 12)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(playlist.name)
+                                    .font(BeansFont.appFont(16, .semibold))
+                                    .foregroundStyle(Color.beansLabel)
+                                    .lineLimit(2)
+                                Text("\(sourceName) · \(loadedCountText)")
+                                    .font(BeansFont.appFont(12))
+                                    .foregroundStyle(Color.beansComment)
+                            }
+                        }
+                        Text("会把歌曲保存到本机歌单，每首歌保留来源标记。播放时仍按网易云 / QQ 音乐 / 酷狗分别解析音源，不会修改平台云端歌单。")
+                            .font(BeansFont.appFont(12))
+                            .foregroundStyle(Color.beansComment)
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                if loading {
+                    Section {
+                        HStack {
+                            Spacer()
+                            ProgressView("正在读取云端歌单…")
+                                .tint(Color.beansAmber)
+                            Spacer()
+                        }
+                    }
+                } else if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(BeansFont.appFont(13))
+                            .foregroundStyle(Color.red)
+                        Button {
+                            Task { await loadTracks(force: true) }
+                        } label: {
+                            Label("重试", systemImage: "arrow.clockwise")
+                        }
+                    }
+                } else if tracks.isEmpty {
+                    Section {
+                        Text("这张歌单没有可导入的歌曲")
+                            .foregroundStyle(Color.beansComment)
+                    }
+                } else {
+                    Section("导入到已有本地歌单") {
+                        if store.playlists.isEmpty {
+                            Text("还没有本地歌单，可以在下面新建一个")
+                                .foregroundStyle(Color.beansComment)
+                        } else {
+                            ForEach(store.playlists) { local in
+                                Button {
+                                    importTracks(to: local.id, name: local.name)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "music.note.list")
+                                            .font(.system(size: 15, weight: .semibold))
+                                            .foregroundStyle(Color.beansAmber)
+                                            .frame(width: 34, height: 34)
+                                            .background(Circle().fill(Color.beansAmber.opacity(0.14)))
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(local.name)
+                                                .font(BeansFont.appFont(15, .medium))
+                                                .foregroundStyle(Color.beansLabel)
+                                                .lineLimit(1)
+                                            Text("\(local.songs.count) 首 · 本机")
+                                                .font(BeansFont.appFont(11))
+                                                .foregroundStyle(Color.beansComment)
+                                        }
+                                        Spacer()
+                                        Image(systemName: "square.and.arrow.down")
+                                            .foregroundStyle(Color.beansComment)
+                                    }
+                                }
+                                .disabled(importing)
+                            }
+                        }
+                    }
+
+                    Section("新建本地歌单并导入") {
+                        TextField("歌单名称", text: $newName)
+                            .submitLabel(.done)
+                        Button {
+                            createAndImport()
+                        } label: {
+                            Label("创建并导入 \(tracks.count) 首", systemImage: "plus.circle")
+                                .font(BeansFont.appFont(15, .semibold))
+                                .foregroundStyle(Color.beansAmber)
+                        }
+                        .disabled(importing || newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+
+                if let message {
+                    Section {
+                        Text(message)
+                            .font(BeansFont.appFont(13))
+                            .foregroundStyle(Color.beansSage)
+                    }
+                }
+            }
+            .navigationTitle("导入本地歌单")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .modifier(BeansSheetModifier(detents: [.medium, .large], dragIndicator: true))
+        .task {
+            if newName.isEmpty { newName = playlist.name }
+            if tracks.isEmpty, !initialTracks.isEmpty {
+                tracks = initialTracks
+                loading = false
+                return
+            }
+            await loadTracks(force: false)
+        }
+    }
+
+    private var sourceName: String {
+        switch playlist.source {
+        case .netease: return "网易云"
+        case .qq: return "QQ 音乐"
+        case .kugou: return "酷狗"
+        }
+    }
+
+    private var loadedCountText: String {
+        if loading { return "读取中" }
+        return "\(tracks.count) 首"
+    }
+
+    private func loadTracks(force: Bool) async {
+        if !force, !tracks.isEmpty {
+            loading = false
+            return
+        }
+        loading = true
+        errorMessage = nil
+        message = nil
+        do {
+            switch playlist.source {
+            case .netease:
+                tracks = try await NetEaseAPI.shared.playlistTracks(id: playlist.id)
+            case .qq:
+                tracks = try await QQMusicAPI.shared.playlistSongs(listID: playlist.id)
+            case .kugou:
+                tracks = try await KugouMusicAPI.shared.playlistSongs(listID: playlist.id)
+            }
+            loading = false
+        } catch {
+            errorMessage = error.localizedDescription
+            loading = false
+        }
+    }
+
+    private func importTracks(to playlistID: UUID, name: String) {
+        guard !tracks.isEmpty else { return }
+        importing = true
+        let added = store.addSongs(tracks, to: playlistID)
+        importing = false
+        message = added > 0 ? "已向「\(name)」导入 \(added) 首，跳过 \(tracks.count - added) 首重复歌曲" : "「\(name)」里已经有这些歌曲了"
+        BeansHaptics.success()
+        ToastCenter.shared.show(message ?? "已导入本地歌单")
+    }
+
+    private func createAndImport() {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !tracks.isEmpty else { return }
+        importing = true
+        let local = store.createPlaylist(name: name)
+        let added = store.addSongs(tracks, to: local.id)
+        importing = false
+        message = "已创建「\(name)」并导入 \(added) 首"
+        BeansHaptics.success()
+        ToastCenter.shared.show(message ?? "已创建本地歌单")
+    }
+}

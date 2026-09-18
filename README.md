@@ -1,21 +1,34 @@
 # Beans Music 🎵
 
-> 一款基于 **iOS 26 原生液态玻璃（Liquid Glass）** 的第三方音乐播放器（兼容 iOS 16+，低版本自动使用系统材质），聚合网易云音乐与 QQ 音乐，纯 SwiftUI 实现。
+> 面向 **iOS 26、macOS 15（Mac Catalyst）和 Windows 11** 的跨端音乐播放器，聚合网易云音乐与 QQ 音乐，并提供端到端加密的 Beans 账号、授权保险库和歌单同步。
 > 本软件完全开源，仅供学习研究使用。
 
-[![GitHub Pages 预览](https://img.shields.io/badge/在线预览-GitHub%20Pages-blue)](https://xiaodou0416.github.io/Beans-Music/)
+> [!IMPORTANT]
+> 本仓库是对 [XIaodou0416/Beans-Music](https://github.com/XIaodou0416/Beans-Music) 的二次开发，不是原项目的官方发行版。原作者版权声明和 MIT License 已保留。详细改动请阅读 [二次开发说明](docs/二次开发说明.md)。
+
+## 本二次开发的主要改动
+
+- 支持 iOS 26、macOS 15 Mac Catalyst 与 Windows 11 WinUI 3。
+- 新增可自托管的 Beans 账号服务、邮箱注册、设备管理和扫码登录。
+- 新增端到端加密保险库、跨端歌单与偏好同步、离线 outbox。
+- QQ 音乐/网易云授权不再强制要求先登录 Beans 账号。
+- 增加 QQ 音乐会员状态、播放密钥与多音质回落处理。
+- 新增青碧玻璃、清透纸感、午夜霓虹三套界面风格，全局字号调节和“音乐宇宙”个人页。
+- 重制应用图标，增加三端构建、测试与打包流程。
+
+[![原项目预览](https://img.shields.io/badge/原项目-GitHub%20Pages-blue)](https://xiaodou0416.github.io/Beans-Music/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-iOS%2016+-orange)]()
+[![Platform](https://img.shields.io/badge/Platform-iOS%2026%20%7C%20macOS%2015%20%7C%20Windows%2011-orange)]()
 [![Swift](https://img.shields.io/badge/Swift-5-orange)]()
 
-**👀 在线预览（HTML 介绍页）：** https://xiaodou0416.github.io/Beans-Music/
+**原项目资料：** [源码仓库](https://github.com/XIaodou0416/Beans-Music) · [HTML 介绍页](https://xiaodou0416.github.io/Beans-Music/)
 
-## 🧑‍💻 关于作者
+## 项目说明
 
-- 作者本人**什么都不会**，连这篇介绍都是 **AI 写的** 🤡
-- 本软件由 **OpenAI Codex** 编程助手开发，从需求分析、UI 设计到代码实现全程由 AI 完成
-- **不喜勿喷**，纯新手小学生，欢迎温柔指教 🙏
-- 软件完全开源（MIT License），欢迎任何人学习、修改、二次开发
+- 本仓库在原项目基础上进行独立二次开发和维护。
+- 部分需求分析、UI 方案、代码实现与文档由 OpenAI Codex 辅助完成。
+- 项目依照 MIT License 开源，但 QQ 音乐、网易云音乐的商标、内容和服务仍归各自权利人所有。
+- 使用者应遵守所在地法律、平台服务条款和音乐版权限制。
 
 ## 📱 界面预览
 
@@ -140,9 +153,24 @@ Beans/
 
 ## 🔨 构建
 
-GitHub Actions（`Build Unsigned IPA`）自动构建，产物发布到 [Releases](https://github.com/XIaodou0416/Beans-Music/releases)。
+### Beans 账号服务
 
-本地构建（需要 Mac + Xcode 26）：
+需要 Docker Compose。复制 `server/.env.example` 为 `server/.env` 并设置 PostgreSQL 密码与 JWT 签名密钥，然后运行：
+
+```bash
+docker compose --env-file server/.env -f server/compose.yaml up --build
+```
+
+- API 默认由 Caddy 暴露在 `http://localhost`。
+- 开发邮件可在 `http://localhost:8025` 的 Mailpit 查看。
+- 生产环境应关闭 `BEANS_EXPOSE_CODES` 并填写 SMTP 配置。
+- 服务端只存储加密保险库、加密同步正文和必要的账号元数据，不代理音乐 API 或音频流。
+
+### Apple
+
+GitHub Actions 自动构建未签名 IPA、Mac Catalyst 应用和 Windows MSIX，构建产物应从当前仓库的 Actions 或 Releases 获取。
+
+本地构建需要 macOS、Xcode 26 和 XcodeGen。正式部署目标为 iOS 26 与 macOS 15；旧版 Xcode 只能通过临时覆盖部署目标做结构验证。
 
 ```bash
 brew install xcodegen
@@ -155,10 +183,44 @@ cp -R build/Build/Products/Release-iphoneos/Beans.app Payload/
 ditto -c -k --sequesterRsrc --keepParent Payload Beans-unsigned.ipa
 ```
 
+Mac Catalyst：
+
+```bash
+xcodebuild -project Beans.xcodeproj -scheme BeansCatalyst -configuration Release \
+  -destination 'generic/platform=macOS,variant=Mac Catalyst' -derivedDataPath build-catalyst \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+```
+
+### Windows 11
+
+安装 .NET 10 SDK 和 Visual Studio 的 WinUI/Windows App SDK 工作负载，在 Windows 11 上运行：
+
+```powershell
+dotnet test windows/Beans.Core.Tests/Beans.Core.Tests.csproj -c Release
+dotnet build windows/Beans.Windows/Beans.Windows.csproj -c Release -p:Platform=x64 `
+  -p:RuntimeIdentifier=win-x64 -p:GenerateAppxPackageOnBuild=true -p:AppxPackageSigningEnabled=false
+```
+
+MSIX 输出位于 `windows/Beans.Windows/AppPackages`。macOS 可以构建和测试 `Beans.Core`，但不能执行 Windows 的 XAML 编译器。
+
+Windows 客户端已包含：Beans 注册/登录/邮箱验证、二维码登录与设备撤销、三套中文主题、QQ 音乐/网易云 WebView2 授权恢复、客户端资料校验、只读歌单镜像加密同步、本地音乐扫描与 MediaPlayer 播放、同名 LRC 歌词高亮、队列，以及仅保存在本机的合法音频断点下载。Beans 服务端不接收平台 Cookie，也不代理第三方音频。
+
+### 验收边界
+
+正式目标是 iOS 26、macOS 15 和 Windows 11。当前开发机只有 Xcode 16.2/iOS 18.2 SDK 且未安装 .NET 10/Windows SDK，因此本机只能完成 Apple 结构构建、XAML/XML/契约静态检查；正式 Apple 26 构建、Windows XAML/MSIX 构建和真实 QQ/网易云账号互通需由 `.github/workflows/ecosystem-ci.yml` 在 macOS 26 与 Windows 11 runner 执行。
+
+### 安全与同步
+
+- 密码通过 Argon2id 和 HKDF 在本地派生，密码及保险库主密钥不上传。
+- QQ 音乐和网易云 Cookie 在 Apple Keychain 或 Windows DPAPI 中保存；跨端同步前使用 AES-256-GCM 加密。
+- SQLite outbox 支持离线写入、增量游标、删除墓碑和版本冲突重试。
+- 忘记密码会撤销所有 Beans 会话并销毁旧跨端保险库；当前设备的第三方平台授权继续保存在 Keychain/DPAPI 中，其他设备需重新建立同步。
+- 第三方歌单是只读镜像；Beans 自建歌单可跨端编辑。
+
 ## 📲 安装
 
 未签名 IPA 需自行签名安装：Sideloadly / AltStore / 爱思助手，使用 Apple ID 签名（免费自签 7 天有效）。
-- 支持 iOS 16+（iOS 26 上为原生液态玻璃，低版本自动使用系统材质）
+- 支持 iOS 26；Mac 正式客户端使用 macOS 15 Mac Catalyst
 - Bundle ID：`com.beans.app`
 
 ---

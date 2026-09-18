@@ -43,12 +43,14 @@ struct LibraryView: View {
     @ObservedObject private var qqAuth = QQMusicAuth.shared
     @ObservedObject private var kugouAuth = KugouMusicAuth.shared
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
+    @ObservedObject private var platformMirrors = BeansPlatformMirrorStore.shared
 
     @State private var showHistory = false
     @State private var showSectionSort = false
     /// 音乐库板块顺序（本地音乐库 / 我的歌单 / 最近播放，可自定义）
     @State private var libraryOrder = SectionOrderStore.load(SectionOrderStore.libraryKey, defaults: SectionOrderStore.libraryDefaults)
     @State private var selectedPlaylist: Playlist?
+    @State private var importPlaylist: Playlist?
     @State private var showCreatePlaylist = false
     @State private var newPlaylistName = ""
     @State private var pendingDelete: Playlist?
@@ -142,6 +144,9 @@ struct LibraryView: View {
                 .environmentObject(player)
                 .environmentObject(auth)
         }
+        .sheet(item: $importPlaylist) { playlist in
+            ImportCloudPlaylistToLocalSheet(playlist: playlist)
+        }
         .alert("新建歌单", isPresented: $showCreatePlaylist) {
             TextField("歌单名称", text: $newPlaylistName)
             Button("创建") { createPlaylist() }
@@ -232,6 +237,12 @@ struct LibraryView: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
+                            Button {
+                                BeansHaptics.tap()
+                                importPlaylist = playlist
+                            } label: {
+                                Label("导入到本地歌单", systemImage: "square.and.arrow.down")
+                            }
                             Button {
                                 BeansHaptics.tap()
                                 requestDelete(playlist)
@@ -447,6 +458,12 @@ struct LibraryView: View {
                         .contextMenu {
                             Button {
                                 BeansHaptics.tap()
+                                importPlaylist = playlist
+                            } label: {
+                                Label("导入到本地歌单", systemImage: "square.and.arrow.down")
+                            }
+                            Button {
+                                BeansHaptics.tap()
                                 requestDelete(playlist)
                             } label: {
                                 Label("删除歌单", systemImage: "trash")
@@ -501,6 +518,14 @@ struct LibraryView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button {
+                                BeansHaptics.tap()
+                                importPlaylist = playlist
+                            } label: {
+                                Label("导入到本地歌单", systemImage: "square.and.arrow.down")
+                            }
+                        }
                         Divider().overlay(Color.beansComment.opacity(0.12))
                     }
                 }
@@ -525,10 +550,12 @@ struct LibraryView: View {
         // 会话内短缓存：5 分钟内不重复拉取，避免每次打开界面都重新加载（下拉可强制刷新）
         if !force, Date().timeIntervalSince(qqSavedAt) < 300 { return }
         qqLoading = true
-        let list = (try? await QQMusicAPI.shared.userPlaylists(uin: qqAuth.uin)) ?? []
+        let fetched = try? await QQMusicAPI.shared.userPlaylists(uin: qqAuth.uin)
+        let list = fetched ?? platformMirrors.qq
         qqPlaylists = list
         qqSavedAt = Date()
         qqLoading = false
+        if fetched != nil { platformMirrors.update(platform: "qq", playlists: list) }
         // 封面兜底：歌单封面缺失时默认取第一首歌曲封面（列表先展示，封面后台补齐）
         if !list.isEmpty { await fillQQPlaylistCovers(list) }
     }
@@ -665,4 +692,3 @@ struct LibraryView: View {
         }
     }
 }
-

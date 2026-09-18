@@ -13,12 +13,16 @@ struct ProfileView: View {
     @EnvironmentObject private var theme: ThemeStore
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var player: PlayerManager
+    @EnvironmentObject private var favorites: FavoritesStore
+    @ObservedObject private var beansAccount = BeansAccountStore.shared
     @AppStorage("beans.themeMode") private var themeModeRaw = BeansThemeMode.system.rawValue
 
     @State private var showHistory = false
+    @State private var showPlayer = false
 
     /// 统一账号登录面板（网易云 + QQ 音乐整合）
     @State private var showAccountHub = false
+    @State private var showBeansAccount = false
     /// 设置页（外观 + 歌词翻译等）
     @State private var showSettings = false
     @State private var showSectionSort = false
@@ -78,6 +82,16 @@ struct ProfileView: View {
             || (platformPrefs.isEnabled(SearchProvider.kugou) && kugouAuth.isLoggedIn)
     }
 
+    private var beansSyncStatus: String {
+        guard beansAccount.isSignedIn else { return "注册 / 登录后跨端共享授权与歌单" }
+        if beansAccount.isSyncing { return "正在加密同步" }
+        if beansAccount.syncError != nil { return "同步需要处理" }
+        if let date = beansAccount.lastSyncAt {
+            return "已同步 · \(date.formatted(date: .omitted, time: .shortened))"
+        }
+        return "已登录 · 等待首次同步"
+    }
+
     /// 顶部标题 + 右上角设置齿轮
     private var header: some View {
         HStack(alignment: .center) {
@@ -90,15 +104,9 @@ struct ProfileView: View {
                     .foregroundStyle(Color.beansComment)
             }
             Spacer()
-            HStack(spacing: 10) {
-                GlassIconButton(systemName: "arrow.up.arrow.down") {
-                    BeansHaptics.tap()
-                    showSectionSort = true
-                }
-                GlassIconButton(systemName: "gearshape.fill") {
-                    BeansHaptics.tap()
-                    showSettings = true
-                }
+            GlassIconButton(systemName: "gearshape.fill") {
+                BeansHaptics.tap()
+                showSettings = true
             }
         }
         .padding(.top, 8)
@@ -114,20 +122,10 @@ struct ProfileView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     header
-                    // 板块按用户自定义顺序渲染（可拖拽排序）
-                    ForEach(profileOrder, id: \.self) { key in
-                        switch key {
-                        case "账号":
-                            userCard
-                        case "关于":
-                            aboutSection
-                        default:
-                            EmptyView()
-                        }
-                    }
-                    // 更新入口固定放在“我的”页面最底部，避免被板块排序隐藏。
-                    updateLinkCard
-                    communityCard
+                    userCard
+                    MusicUniverseView(openPlayer: { showPlayer = true }, openHistory: { showHistory = true })
+                    featuresGrid
+                    usageGuideCard
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -148,8 +146,21 @@ struct ProfileView: View {
                 .environmentObject(player)
                 .environmentObject(auth)
         }
+        .fullScreenCover(isPresented: $showPlayer) {
+            PlayerView(isPresented: $showPlayer)
+                .environmentObject(favorites)
+                .environmentObject(player)
+                .environmentObject(player.clock)
+                .environmentObject(auth)
+                .environmentObject(theme)
+        }
         .sheet(isPresented: $showAccountHub) {
             AccountHubSheet()
+                .environmentObject(auth)
+                .environmentObject(theme)
+        }
+        .sheet(isPresented: $showBeansAccount) {
+            BeansAccountSheet()
                 .environmentObject(auth)
                 .environmentObject(theme)
         }
@@ -257,62 +268,39 @@ struct ProfileView: View {
     }
 
     private var userCard: some View {
-        VStack(spacing: 16) {
-            Button {
-                BeansHaptics.tap()
-                // 统一账号面板：网易云 + QQ 音乐登录整合在一起
-                showAccountHub = true
-            } label: {
-                HStack(spacing: 14) {
-                    // 头像：主题渐变描边环
-                    AsyncImage(url: auth.user?.avatarURL) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFill()
-                        } else {
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 26))
-                                .foregroundStyle(Color.beansComment)
-                        }
-                    }
-                    .frame(width: 64, height: 64)
-                    .clipShape(Circle())
-                    .background(Color.beansGlassFill, in: Circle())
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Text(auth.user?.nickname ?? (auth.isLoggedIn ? "网易云已登录" : "免登录 · 点击登录"))
-                                .font(BeansFont.appFont(20, .bold))
-                                .foregroundStyle(Color.beansLabel)
-                                .lineLimit(1)
-                            if auth.isLoggedIn, let badge = auth.user?.vipBadge {
-                                VIPBadgeView(text: badge)
-                            }
-                        }
-                        Text(accountStatusLine)
-                            .font(BeansFont.appFont(12, .regular, .monospaced))
-                            .foregroundStyle(Color.beansComment)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.beansComment.opacity(0.7))
+        Button {
+            BeansHaptics.tap()
+            showBeansAccount = true
+        } label: {
+            HStack(spacing: 12) {
+                Image("OnboardingLogo")
+                    .resizable().scaledToFill()
+                    .frame(width: 42, height: 42)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(beansAccount.account?.nickname ?? "Beans 本体账号")
+                        .font(BeansFont.appFont(16, .semibold))
+                        .foregroundStyle(Color.beansLabel)
+                    Text(beansSyncStatus)
+                        .font(BeansFont.appFont(11))
+                        .foregroundStyle(beansAccount.syncError == nil ? Color.beansComment : .orange)
+                        .lineLimit(2)
                 }
-                .contentShape(Rectangle())
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 3) {
+                    Image(systemName: beansAccount.isSignedIn ? "checkmark.seal.fill" : "person.crop.circle.badge.plus")
+                        .foregroundStyle(beansAccount.isSignedIn ? Color.beansSage : Color.beansComment)
+                    Text(beansAccount.devices.isEmpty ? "设备" : "\(beansAccount.devices.count) 台设备")
+                        .font(BeansFont.appFont(10, .semibold))
+                        .foregroundStyle(Color.beansComment)
+                }
             }
-            .buttonStyle(.plain)
-
-            if (platformPrefs.isEnabled(SearchProvider.netease) && auth.isLoggedIn)
-                || (platformPrefs.isEnabled(SearchProvider.qq) && qqAuth.isLoggedIn)
-                || (platformPrefs.isEnabled(SearchProvider.kugou) && kugouAuth.isLoggedIn) {
-                platformStatusRow
-            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(BeansGlass(shape: RoundedRectangle(cornerRadius: 16, style: .continuous)))
+            .contentShape(Rectangle())
         }
-        .padding(16)
-        .background {
-                        BeansGlass(shape: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        }
-        .beansCardShadow(radius: 10, y: 4)
+        .buttonStyle(.plain)
     }
 
     /// 每个登录平台单独展示登录成功状态（网易云 / QQ 音乐）
@@ -405,17 +393,19 @@ struct ProfileView: View {
         }
     }
 
-    /// 功能宫格：常用功能统一整合排版
+    /// 音乐服务和跨端状态保持紧凑，不与音乐内容争夺视觉中心。
     private var featuresGrid: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "我的功能")
-            VStack(spacing: 12) {
-                featureCell(icon: "clock.arrow.circlepath", title: "播放历史", subtitle: "最近播放 \(player.history.count) 首") {
-                    showHistory = true
-                }
-                featureCell(icon: hasVisibleAccountLogin ? "checkmark.seal.fill" : "globe", title: "账号与登录", subtitle: hasVisibleAccountLogin ? accountStatusLine : "登录 \(platformPrefs.summaryText)") {
-                    BeansHaptics.tap()
+            SectionHeader(title: "账号管理")
+            VStack(spacing: 10) {
+                featureCell(icon: "q.circle.fill", title: "QQ 音乐", subtitle: qqAuth.isLoggedIn ? "已授权 · \(qqAuth.nickname.isEmpty ? "凭证可跨端恢复" : qqAuth.nickname)" : "未授权") {
                     showAccountHub = true
+                }
+                featureCell(icon: "music.note.house.fill", title: "网易云音乐", subtitle: auth.isLoggedIn ? "已授权 · \(auth.user?.nickname ?? "凭证可跨端恢复")" : "未授权") {
+                    showAccountHub = true
+                }
+                featureCell(icon: "laptopcomputer.and.iphone", title: "设备与同步", subtitle: beansSyncStatus) {
+                    showBeansAccount = true
                 }
             }
         }
@@ -436,11 +426,11 @@ struct ProfileView: View {
                     Text(title)
                         .font(BeansFont.appFont(14, .semibold))
                         .foregroundStyle(Color.beansLabel)
-                        .lineLimit(1)
+                        .lineLimit(2)
                     Text(subtitle)
                         .font(BeansFont.appFont(11))
                         .foregroundStyle(Color.beansComment)
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
                 Spacer(minLength: 0)
             }
@@ -761,11 +751,13 @@ struct AccountHubSheet: View {
     @ObservedObject private var qqAuth = QQMusicAuth.shared
     @ObservedObject private var kugouAuth = KugouMusicAuth.shared
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
+    @ObservedObject private var beansAccount = BeansAccountStore.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var showNeteaseLogin = false
     @State private var showQQLogin = false
     @State private var showKugouLogin = false
+    @State private var showBeansAccount = false
     @State private var confirmNeteaseLogout = false
     @State private var confirmQQLogout = false
     @State private var confirmKugouLogout = false
@@ -777,6 +769,7 @@ struct AccountHubSheet: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         SectionHeader(title: "账号")
+                        beansAccountCard
                         if platformPrefs.isEnabled(SearchProvider.netease) { neteaseCard }
                         if platformPrefs.isEnabled(SearchProvider.qq) { qqCard }
                         if platformPrefs.isEnabled(SearchProvider.kugou) { kugouCard }
@@ -802,6 +795,11 @@ struct AccountHubSheet: View {
                 .environmentObject(auth)
                 .environmentObject(theme)
         }
+        .sheet(isPresented: $showBeansAccount) {
+            BeansAccountSheet()
+                .environmentObject(auth)
+                .environmentObject(theme)
+        }
         .sheet(isPresented: $showQQLogin) {
             QQLoginSheet()
                 .environmentObject(theme)
@@ -819,6 +817,9 @@ struct AccountHubSheet: View {
             Button("取消", role: .cancel) {}
         }
         .confirmationDialog("退出 QQ 音乐？", isPresented: $confirmQQLogout, titleVisibility: .visible) {
+            Button("重新授权播放权限") {
+                showQQLogin = true
+            }
             Button("退出登录", role: .destructive) {
                 qqAuth.logout()
                 WebLoginDataCleaner.clearQQMusic()
@@ -834,6 +835,41 @@ struct AccountHubSheet: View {
             }
             Button("取消", role: .cancel) {}
         }
+        .onAppear {
+            beansAccount.reconcilePlatformLinks(qqLoggedIn: qqAuth.isLoggedIn, neteaseLoggedIn: auth.isLoggedIn)
+        }
+        .onChange(of: auth.isLoggedIn) { _ in
+            beansAccount.reconcilePlatformLinks(qqLoggedIn: qqAuth.isLoggedIn, neteaseLoggedIn: auth.isLoggedIn)
+        }
+        .onChange(of: qqAuth.isLoggedIn) { _ in
+            beansAccount.reconcilePlatformLinks(qqLoggedIn: qqAuth.isLoggedIn, neteaseLoggedIn: auth.isLoggedIn)
+        }
+    }
+
+    private var beansAccountCard: some View {
+        Button {
+            BeansHaptics.tap()
+            showBeansAccount = true
+        } label: {
+            HStack(spacing: 14) {
+                Image("OnboardingLogo")
+                    .resizable().scaledToFill().frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Beans 本体账号")
+                        .font(BeansFont.appFont(15, .semibold)).foregroundStyle(Color.beansLabel)
+                    Text(beansAccount.isSignedIn ? "\(beansAccount.account?.nickname ?? "已登录") · 跨端同步中心" : "可选登录 · 用于跨端共享授权与歌单")
+                        .font(BeansFont.appFont(12)).foregroundStyle(Color.beansComment)
+                }
+                Spacer()
+                Text(beansAccount.isSignedIn ? "管理" : "登录")
+                    .font(BeansFont.appFont(13, .medium)).foregroundStyle(Color.beansAmber)
+            }
+            .padding(14)
+            .background(BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
     }
 
     /// 网易云账号卡片
@@ -906,9 +942,9 @@ struct AccountHubSheet: View {
                         .font(BeansFont.appFont(15, .semibold))
                         .foregroundStyle(Color.beansLabel)
                     HStack(spacing: 6) {
-                        Text(qqAuth.isLoggedIn ? (qqAuth.nickname.isEmpty ? "已登录" : qqAuth.nickname) : "未登录 · 网页 / 扫码 / Cookie 登录")
+                        Text(qqAccountStatus)
                             .font(BeansFont.appFont(12))
-                            .foregroundStyle(Color.beansComment)
+                            .foregroundStyle(qqAuth.isLoggedIn && !qqAuth.hasPlaybackCredential ? Color.orange : Color.beansComment)
                             .lineLimit(1)
                         if qqAuth.isLoggedIn, let badge = qqAuth.vipBadge {
                             VIPBadgeView(text: badge)
@@ -930,6 +966,12 @@ struct AccountHubSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+    }
+
+    private var qqAccountStatus: String {
+        guard qqAuth.isLoggedIn else { return "未登录 · 网页 / 扫码 / Cookie 登录" }
+        let name = qqAuth.nickname.isEmpty ? "已登录" : qqAuth.nickname
+        return qqAuth.hasPlaybackCredential ? name : "\(name) · 播放凭证待刷新"
     }
 
     private var kugouCard: some View {
@@ -997,10 +1039,14 @@ struct SettingsView: View {
     @AppStorage("beans.showThirdPartyVIPNotice") private var showThirdPartyVIPNotice = true
     /// 可选高刷新率动效，默认开启；可手动关闭以降低发热
     @AppStorage("beans.enableHighRefresh") private var enableHighRefresh = true
+    /// Canvas 粒子氛围动效，默认开启；关闭可进一步降低 GPU 占用
+    @AppStorage("beans.particles.enabled") private var particlesEnabled = true
     @AppStorage("beans.audio.mixothers.v1") private var mixesWithOthers = false
     @AppStorage("beans.labelColorHex") private var labelColorHex = ""
     @ObservedObject private var sourceStore = UnblockSourceStore.shared
     @ObservedObject private var platformPrefs = PlatformPreferenceStore.shared
+    @ObservedObject private var beansAccount = BeansAccountStore.shared
+    @State private var textScale = TextScaleStore.shared
 
     @State private var appearanceExpanded = false
     @State private var platformExpanded = false
@@ -1022,6 +1068,10 @@ struct SettingsView: View {
     /// 日志
     @State private var showLogViewer = false
     @State private var showUsageGuide = false
+    @State private var checkingUpdate = false
+    @State private var updateResult: UpdateChecker.CheckResult?
+    @State private var showUpdateResult = false
+    @State private var showAppInfo = false
 
     private var themeMode: BeansThemeMode {
         BeansThemeMode(rawValue: themeModeRaw) ?? .system
@@ -1041,6 +1091,7 @@ struct SettingsView: View {
                         platformSection
                         playbackSection
                         changelogSection
+                        applicationSection
                         backupSection
                         logSection
                         settingsUsageGuideSection
@@ -1078,6 +1129,22 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showUsageGuide) {
             UsageGuideSheet()
+        }
+        .sheet(isPresented: $showAppInfo) {
+            ApplicationInfoSheet()
+                .environmentObject(theme)
+        }
+        .alert("检查更新", isPresented: $showUpdateResult, presenting: updateResult) { result in
+            if case .update(let info) = result {
+                Button("打开更新页") { UIApplication.shared.open(info.htmlURL) }
+            }
+            Button("好", role: .cancel) {}
+        } message: { result in
+            switch result {
+            case .update(let info): Text("发现新版本 \(info.version)")
+            case .upToDate: Text("当前已是最新版本 \(UpdateChecker.currentVersion)")
+            case .failed: Text("检查失败，请检查网络后重试")
+            }
         }
         .fileExporter(
             isPresented: $showExportBackup,
@@ -1134,6 +1201,23 @@ struct SettingsView: View {
         }
     }
 
+    private var textScaleRangeNote: some View {
+        Text("范围 85% - 140%，同时尊重系统辅助字号")
+            .font(BeansFont.appFont(11))
+            .foregroundStyle(Color.beansComment)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var resetTextScaleButton: some View {
+        Button("恢复默认") {
+            textScale.reset()
+            BeansHaptics.select()
+        }
+        .font(BeansFont.appFont(12, .semibold))
+        .foregroundStyle(Color.beansAmber)
+        .buttonStyle(.plain)
+    }
+
     private var platformSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button {
@@ -1183,8 +1267,8 @@ struct SettingsView: View {
 
     /// 外观设置（原「我的」页外观折叠内容）
     private var appearanceSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "外观")
+                VStack(alignment: .leading, spacing: 12) {
+                    SectionHeader(title: "外观")
             // 外观设置行：点击展开 / 收起全部外观设置
             Button {
                 BeansHaptics.select()
@@ -1217,12 +1301,94 @@ struct SettingsView: View {
 
             if appearanceExpanded {
             VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "paintbrush.pointed.fill")
+                            .foregroundStyle(Color.beansAmber)
+                        Text("参考图风格").font(BeansFont.appFont(15, .semibold)).foregroundStyle(Color.beansLabel)
+                        Spacer()
+                    }
+                    ForEach(BeansReferenceStyle.allCases) { style in
+                        Button {
+                            theme.setReferenceStyle(style)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: style.icon)
+                                    .frame(width: 30, height: 30)
+                                    .foregroundStyle(style == theme.referenceStyle ? .white : Color.beansAmber)
+                                    .background(style == theme.referenceStyle ? LinearGradient.beansAccent : LinearGradient(colors: [Color.beansAmber.opacity(0.12), Color.beansAmber.opacity(0.12)], startPoint: .top, endPoint: .bottom), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(style.title).font(BeansFont.appFont(13, .semibold)).foregroundStyle(Color.beansLabel)
+                                    Text(style.subtitle).font(BeansFont.appFont(11)).foregroundStyle(Color.beansComment)
+                                }
+                                Spacer()
+                                if style == theme.referenceStyle { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.beansSage) }
+                            }
+                            .padding(.vertical, 5)
+                        }.buttonStyle(.plain)
+                    }
+                }
+
+                Divider().overlay(Color.beansComment.opacity(0.15))
+
                 Picker("主题模式", selection: $themeModeRaw) {
                     ForEach(BeansThemeMode.allCases) { mode in
                         Text(mode.title).tag(mode.rawValue)
                     }
                 }
                 .pickerStyle(.segmented)
+
+                Divider().overlay(Color.beansComment.opacity(0.15))
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Label("全局字号", systemImage: "textformat.size")
+                            .font(BeansFont.appFont(15, .semibold))
+                            .foregroundStyle(Color.beansLabel)
+                        Spacer()
+                        Text("\(Int(textScale.percent))%")
+                            .font(BeansFont.appFont(12, .semibold, .monospaced))
+                            .foregroundStyle(Color.beansAmber)
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { textScale.percent },
+                            set: { textScale.setPercent($0) }
+                        ),
+                        in: TextScaleStore.minimumPercent...TextScaleStore.maximumPercent,
+                        step: 5
+                    )
+                    .tint(Color.beansAmber)
+                    .accessibilityLabel("全局字号")
+                    .accessibilityValue("\(Int(textScale.percent))%")
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("音乐让今天更有层次")
+                            .font(BeansFont.appFont(20, .bold))
+                            .foregroundStyle(Color.beansLabel)
+                        Text("标题、正文与辅助文字会即时预览")
+                            .font(BeansFont.appFont(14))
+                            .foregroundStyle(Color.beansLabel)
+                        Text("歌词保留播放器中的独立字号设置")
+                            .font(BeansFont.appFont(11))
+                            .foregroundStyle(Color.beansComment)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(Color.beansGlassFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    ViewThatFits(in: .horizontal) {
+                        HStack {
+                            textScaleRangeNote
+                            Spacer()
+                            resetTextScaleButton
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            textScaleRangeNote
+                            resetTextScaleButton
+                        }
+                    }
+                }
 
                 Toggle(isOn: $tabLabelsVisible) {
                     HStack(spacing: 12) {
@@ -1270,6 +1436,27 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                 }
+
+                Divider().overlay(Color.beansComment.opacity(0.15))
+
+                Toggle(isOn: $particlesEnabled) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color.beansAmber)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("播放粒子氛围")
+                                .font(BeansFont.appFont(15))
+                                .foregroundStyle(Color.beansLabel)
+                            Text("播放时增强，暂停时降低强度；关闭可减少动效与功耗")
+                                .font(BeansFont.appFont(11))
+                                .foregroundStyle(Color.beansComment)
+                        }
+                    }
+                }
+                .toggleStyle(.switch)
+                .tint(Color.beansAmber)
 
                 Divider().overlay(Color.beansComment.opacity(0.15))
 
@@ -1786,6 +1973,74 @@ struct SettingsView: View {
         }
     }
 
+    private var applicationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "应用与更新")
+            VStack(spacing: 0) {
+                Button {
+                    guard !checkingUpdate else { return }
+                    checkingUpdate = true
+                    Task {
+                        let result = await UpdateChecker.checkNow()
+                        await MainActor.run {
+                            checkingUpdate = false
+                            updateResult = result
+                            showUpdateResult = true
+                        }
+                    }
+                } label: {
+                    settingsApplicationRow(
+                        icon: checkingUpdate ? "arrow.triangle.2.circlepath" : "arrow.down.circle",
+                        title: checkingUpdate ? "正在检查更新" : "检查更新",
+                        subtitle: "当前版本 v\(UpdateChecker.currentVersion)"
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(checkingUpdate)
+
+                Divider().padding(.leading, 50).opacity(0.35)
+
+                Button {
+                    showAppInfo = true
+                } label: {
+                    settingsApplicationRow(
+                        icon: "info.circle",
+                        title: "应用信息",
+                        subtitle: "版本、隐私与必要法律信息"
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            .background {
+                BeansGlass(shape: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
+            .beansCardShadow(radius: 8, y: 3)
+        }
+    }
+
+    private func settingsApplicationRow(icon: String, title: String, subtitle: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.beansAmber)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(BeansFont.appFont(15, .semibold))
+                    .foregroundStyle(Color.beansLabel)
+                Text(subtitle)
+                    .font(BeansFont.appFont(11))
+                    .foregroundStyle(Color.beansComment)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.beansComment)
+        }
+        .padding(16)
+        .contentShape(Rectangle())
+    }
+
     /// 软件使用说明入口（放在设置页底部）
     private var settingsUsageGuideSection: some View {
         Button {
@@ -2117,6 +2372,7 @@ struct SettingsView: View {
         theme.setBackgroundSyncAll(true)
         theme.clearAllWallpapers()
         theme.setUIStyle(.liquid)
+        textScale.reset()
         LyricBackgroundStore.clear()
         PlatformPreferenceStore.shared.resetToDefault()
         BeansHaptics.success()
@@ -2264,6 +2520,62 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
             .zIndex(2)
+        }
+    }
+}
+
+private struct ApplicationInfoSheet: View {
+    @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.dismiss) private var dismiss
+
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+    }
+
+    var body: some View {
+        BeansNavigationStack {
+            ZStack {
+                GlassBackdrop(customColor: theme.customBackground)
+                ScrollView {
+                    VStack(spacing: 18) {
+                        Image("OnboardingLogo")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 86, height: 86)
+                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        VStack(spacing: 4) {
+                            Text("Beans Music")
+                                .font(BeansFont.appFont(24, .bold))
+                                .foregroundStyle(Color.beansLabel)
+                            Text("版本 \(version)")
+                                .font(BeansFont.appFont(12))
+                                .foregroundStyle(Color.beansComment)
+                        }
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("隐私与版权", systemImage: "hand.raised.fill")
+                                .font(BeansFont.appFont(16, .semibold))
+                                .foregroundStyle(Color.beansLabel)
+                            Text("Beans Music 不在服务端保存明文平台凭证，也不代理受版权保护的音频。QQ 音乐、网易云音乐及酷狗音乐的名称、标识和内容版权归各自权利方所有。请遵守对应平台协议并支持正版音乐。")
+                                .font(BeansFont.appFont(13))
+                                .foregroundStyle(Color.beansComment)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .background {
+                            BeansGlass(shape: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+            .navigationTitle("应用信息")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { dismiss() }
+                }
+            }
         }
     }
 }

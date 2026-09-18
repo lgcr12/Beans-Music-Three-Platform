@@ -77,7 +77,11 @@ struct QQWebLoginPanel: View {
             let auth = QQMusicAuth.shared
             if auth.hasValidLogin(dict) {
                 auth.importCookies(dict, nickname: nil)
-                finishSuccess()
+                if auth.hasPlaybackCredential {
+                    finishSuccess()
+                } else {
+                    message = "已读取 QQ 登录态，但尚未取得会员播放凭证。请在网页中播放任意歌曲后再次同步，或改用扫码 / Cookie 登录。"
+                }
             } else {
                 message = "未检测到有效登录态，请先在网页中完成 QQ 登录"
             }
@@ -174,6 +178,10 @@ struct QQCookieImportPanel: View {
             return
         }
         auth.importCookies(dict, nickname: nil)
+        guard auth.hasPlaybackCredential else {
+            message = "Cookie 中缺少 qm_keyst / qqmusic_key，请完整复制 QQ 音乐请求的 Cookie"
+            return
+        }
         message = "✓ QQ 音乐登录成功"
         BeansHaptics.success()
         ToastCenter.shared.show("QQ 音乐登录成功")

@@ -9,3 +9,43 @@ _*.py
 _*.ps1
 _*.js
 _*.txt
+
+# Apple build products and signing files
+DerivedData/
+Payload/
+*.app
+*.app.zip
+*.xcarchive
+*.mobileprovision
+*.p12
+
+# .NET / Visual Studio / Windows packaging
+**/bin/
+**/obj/
+**/.vs/
+**/AppPackages/
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+*.pfx
+
+# Local server state and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+server/data/
+server/postgres-data/
+server/redis-data/
+
+# Local release output
+dist/
+
+# Editor and local user settings
+.idea/
+.vscode/
+*.user
+*.suo

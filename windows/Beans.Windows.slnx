@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Beans.Core/Beans.Core.csproj" />
+  <Project Path="Beans.Windows/Beans.Windows.csproj" />
+  <Project Path="Beans.Core.Tests/Beans.Core.Tests.csproj" />
+</Solution>

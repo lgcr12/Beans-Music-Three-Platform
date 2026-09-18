@@ -46,6 +46,7 @@ final class FavoritesStore: ObservableObject {
                     updateNetease(song, liked: !liked)
                     return false
                 }
+                queue(song, deleted: !liked)
                 return true
             } catch {
                 updateNetease(song, liked: !liked)
@@ -59,9 +60,11 @@ final class FavoritesStore: ObservableObject {
                 let ok = (try? await QQMusicAPI.shared.like(songmid: mid, liked: liked)) ?? false
                 if !ok {
                     // QQ 云端同步失败时保留本地收藏，仅提示，不影响使用
+                    queue(song, deleted: !liked)
                     return false
                 }
             }
+            queue(song, deleted: !liked)
             return true
         case .kugou:
             return false
@@ -71,6 +74,15 @@ final class FavoritesStore: ObservableObject {
     /// 移除 QQ 收藏（音乐库侧滑删除）
     func removeQQFavorite(_ song: Song) {
         updateQQ(song, liked: false)
+        queue(song, deleted: true)
+    }
+
+    func applyRemote(_ song: Song, deleted: Bool) {
+        switch song.source {
+        case .netease: updateNetease(song, liked: !deleted)
+        case .qq: updateQQ(song, liked: !deleted)
+        case .kugou: break
+        }
     }
 
     private func updateNetease(_ song: Song, liked: Bool) {
@@ -102,6 +114,17 @@ final class FavoritesStore: ObservableObject {
     private func saveSongs(_ songs: [Song], key: String) {
         if let data = try? JSONEncoder().encode(songs) {
             defaults.set(data, forKey: key)
+        }
+    }
+
+    private func queue(_ song: Song, deleted: Bool) {
+        Task { @MainActor in
+            BeansAccountStore.shared.queueSync(
+                entityType: "favorite",
+                entityID: BeansAccountStore.favoriteID(song),
+                payload: song,
+                deleted: deleted
+            )
         }
     }
 

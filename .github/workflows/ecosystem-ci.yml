@@ -1,0 +1,89 @@
+name: Beans Ecosystem CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend and Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Test backend
+        run: dotnet test server/Beans.Api.Tests/Beans.Api.Tests.csproj --configuration Release --nologo
+      - name: Build Docker image
+        run: docker build -f server/Beans.Api/Dockerfile -t beans-api:${{ github.sha }} server/Beans.Api
+      - name: Export deployment bundle
+        run: |
+          docker save beans-api:${{ github.sha }} | gzip > beans-api-image.tar.gz
+          tar -czf beans-server-compose.tar.gz server/compose.yaml server/Caddyfile server/.env.example
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beans-backend
+          path: |
+            beans-api-image.tar.gz
+            beans-server-compose.tar.gz
+
+  windows:
+    name: Windows 11
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Test shared Windows core
+        run: dotnet test windows/Beans.Core.Tests/Beans.Core.Tests.csproj --configuration Release --nologo
+      - name: Build unsigned MSIX
+        run: >-
+          dotnet build windows/Beans.Windows/Beans.Windows.csproj
+          --configuration Release
+          -p:Platform=x64
+          -p:RuntimeIdentifier=win-x64
+          -p:GenerateAppxPackageOnBuild=true
+          -p:AppxPackageSigningEnabled=false
+          -p:UapAppxPackageBuildMode=SideloadOnly
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beans-windows-msix
+          path: windows/Beans.Windows/AppPackages/**/*.msix*
+          if-no-files-found: error
+
+  apple:
+    name: iOS 26 and macOS 15
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build unsigned iOS app
+        run: |
+          xcodebuild -project Beans.xcodeproj -scheme Beans -configuration Release -sdk iphoneos \
+            -derivedDataPath build-ci-ios CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+          mkdir Payload
+          cp -R build-ci-ios/Build/Products/Release-iphoneos/Beans.app Payload/
+          ditto -c -k --sequesterRsrc --keepParent Payload Beans-iOS26-unsigned.ipa
+      - name: Build Mac Catalyst app
+        run: |
+          xcodebuild -project Beans.xcodeproj -scheme BeansCatalyst -configuration Release \
+            -destination 'generic/platform=macOS,variant=Mac Catalyst' -derivedDataPath build-ci-catalyst \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+          ditto -c -k --sequesterRsrc --keepParent \
+            "build-ci-catalyst/Build/Products/Release-maccatalyst/Beans Music.app" Beans-macOS15-Catalyst.app.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beans-apple
+          path: |
+            Beans-iOS26-unsigned.ipa
+            Beans-macOS15-Catalyst.app.zip

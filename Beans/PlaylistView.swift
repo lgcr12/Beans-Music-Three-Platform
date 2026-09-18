@@ -12,6 +12,7 @@ struct PlaylistView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.dismiss) private var dismiss
 
     let playlist: Playlist
     @State private var tracks: [Song] = []
@@ -19,6 +20,7 @@ struct PlaylistView: View {
     @State private var errorMessage: String?
     @State private var searchText = ""
     @State private var sortMode: PlaylistSortMode = .original
+    @State private var showImportToLocal = false
 
     var body: some View {
         let _ = theme.accent
@@ -52,8 +54,22 @@ struct PlaylistView: View {
             }
             .navigationTitle(playlist.name)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .accessibilityLabel("关闭歌单")
+                }
+            }
         }
         .task { await load() }
+        .sheet(isPresented: $showImportToLocal) {
+            ImportCloudPlaylistToLocalSheet(playlist: playlist, initialTracks: tracks)
+        }
     }
 
     private var header: some View {
@@ -84,6 +100,11 @@ struct PlaylistView: View {
                     if !displayedTracks.isEmpty {
                         player.play(songs: displayedTracks, startAt: Int.random(in: 0..<displayedTracks.count))
                     }
+                }
+            }
+            HStack(spacing: 10) {
+                GlassButton(title: "导入本地", systemName: "square.and.arrow.down") {
+                    showImportToLocal = true
                 }
             }
             HStack(spacing: 10) {

@@ -1182,7 +1182,9 @@ final class KugouMusicAPI {
     private static func mapTrack(_ raw: [String: Any]) -> Song? {
         let trans = raw["trans_param"] as? [String: Any] ?? raw["transParam"] as? [String: Any] ?? [:]
         let qualityHashes = qualityHashes(raw: raw, trans: trans)
-        let hash = string(raw["hash"] ?? raw["Hash"] ?? raw["file_hash"] ?? raw["FileHash"] ?? raw["audio_hash"] ?? qualityHashes["exhigh"] ?? qualityHashes["standard"] ?? qualityHashes["lossless"])
+        let rawHash = raw["hash"] ?? raw["Hash"] ?? raw["file_hash"] ?? raw["FileHash"] ?? raw["audio_hash"]
+        let qualityHash = qualityHashes["exhigh"] ?? qualityHashes["standard"] ?? qualityHashes["lossless"]
+        let hash = string(rawHash ?? qualityHash)
         let albumAudioId = string(raw["album_audio_id"] ?? raw["albumAudioId"] ?? raw["audio_id"] ?? raw["audioid"] ?? raw["mixsongid"] ?? raw["songid"] ?? raw["id"])
         let stable = abs((hash.isEmpty ? albumAudioId : hash).hashValue)
         var title = clean(string(raw["songname"] ?? raw["song_name"] ?? raw["name"] ?? raw["title"]))
@@ -1219,11 +1221,16 @@ final class KugouMusicAPI {
     }
 
     private static func qualityHashes(raw: [String: Any], trans: [String: Any]) -> [String: String] {
+        let fallbackHash = raw["hash"] ?? raw["Hash"] ?? raw["file_hash"] ?? raw["FileHash"]
+        let standardHash = string(raw["128hash"] ?? fallbackHash ?? trans["ogg_128_hash"])
+        let exhighHash = string(raw["320hash"] ?? raw["HQFileHash"] ?? trans["ogg_320_hash"] ?? fallbackHash)
+        let losslessHash = string(raw["sqhash"] ?? raw["SQFileHash"] ?? raw["flac_hash"] ?? fallbackHash)
+        let hiresHash = string(raw["hrhash"] ?? raw["high_hash"] ?? raw["sqhash"] ?? raw["SQFileHash"] ?? fallbackHash)
         let values: [(String, String)] = [
-            ("standard", string(raw["128hash"] ?? raw["hash"] ?? raw["Hash"] ?? raw["file_hash"] ?? raw["FileHash"] ?? trans["ogg_128_hash"])),
-            ("exhigh", string(raw["320hash"] ?? raw["HQFileHash"] ?? trans["ogg_320_hash"] ?? raw["hash"] ?? raw["Hash"] ?? raw["file_hash"] ?? raw["FileHash"])),
-            ("lossless", string(raw["sqhash"] ?? raw["SQFileHash"] ?? raw["flac_hash"] ?? raw["hash"] ?? raw["Hash"] ?? raw["file_hash"] ?? raw["FileHash"])),
-            ("hires", string(raw["hrhash"] ?? raw["high_hash"] ?? raw["sqhash"] ?? raw["SQFileHash"] ?? raw["hash"] ?? raw["Hash"] ?? raw["file_hash"] ?? raw["FileHash"])),
+            ("standard", standardHash),
+            ("exhigh", exhighHash),
+            ("lossless", losslessHash),
+            ("hires", hiresHash),
         ]
         var result: [String: String] = [:]
         for (key, value) in values where !value.isEmpty {

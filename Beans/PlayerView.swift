@@ -392,6 +392,13 @@ struct PlayerView: View {
                 isPlaying: playerVisualsActive,
                 breath: playerBreath
             )
+            BeansParticleCanvas(
+                accent: palette.accent,
+                secondary: palette.secondary,
+                isPlaying: playerVisualsActive,
+                intensity: min(0.72, max(0.15, playerBreath))
+            )
+            .opacity(0.72)
             if djVisualEnabled {
                 DJVisualView(
                     accent: palette.accent,
@@ -750,7 +757,7 @@ struct PlayerView: View {
         // 侧边上下滑动切歌（抖音式刷视频交互）：上滑下一首、下滑上一首，仅响应纵向手势
         // 使用 .gesture 与封面点击互斥：拖动时不会误触点击封面（避免切歌瞬间跳到歌词页）
         .offset(y: swipeOffset)
-        .opacity(1 - min(abs(swipeOffset) / 260, 0.35))
+        .opacity(1 - min(Double(abs(swipeOffset)) / 260, 0.35))
         .gesture(
             DragGesture(minimumDistance: 15)
                 .onChanged { value in
@@ -2001,7 +2008,7 @@ struct LyricsSection: View {
         }
         let glowColor = glowColorOverride ?? (gradientStart ?? accent)
 
-        let lineFont: Font = BeansFont.appFont(size)
+        let lineFont: Font = BeansFont.lyricFont(size)
         // 翻译行：仅当前行展示（借鉴 Kumone 的歌词翻译显示）
         let translationText = (isCurrent && showTranslation) ? line.translation : nil
 
@@ -2866,6 +2873,7 @@ private struct PlayerSettingsLiquidGlass<S: Shape>: View {
     }
 
     var body: some View {
+#if compiler(>=6.2)
         if #available(iOS 26, *), uiStyle == .liquid {
             GlassEffectContainer {
                 shape
@@ -2881,9 +2889,21 @@ private struct PlayerSettingsLiquidGlass<S: Shape>: View {
             case .outline:
                 shape
                     .fill(Color.beansGlassFill.opacity(0.72))
-                    .overlay { shape.stroke(Color.beansAmber.opacity(0.30), lineWidth: 0.9) }
+                .overlay { shape.stroke(Color.beansAmber.opacity(0.30), lineWidth: 0.9) }
             }
         }
+#else
+        switch uiStyle {
+        case .clear, .liquid:
+            shape.fill(.ultraThinMaterial)
+        case .compact:
+            shape.fill(Color.beansGlassFill.opacity(0.62))
+        case .outline:
+            shape
+                .fill(Color.beansGlassFill.opacity(0.72))
+                .overlay { shape.stroke(Color.beansAmber.opacity(0.30), lineWidth: 0.9) }
+        }
+#endif
     }
 }
 

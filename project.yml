@@ -2,23 +2,35 @@ name: Beans
 
 options:
   deploymentTarget:
-    iOS: "15.0"
+    iOS: "26.0"
 
 settings:
   base:
     SWIFT_VERSION: "5.0"
+
+packages:
+  Argon2Swift:
+    url: https://github.com/tmthecoder/Argon2Swift.git
+    revision: 53543623fefe68461b7eeea03d7f96677c2fd76d
+  GRDB:
+    url: https://github.com/groue/GRDB.swift.git
+    revision: 18497b68fdbb3a09528d260a0a0e1e7e61c8c53d
 
 targets:
   Beans:
     type: application
     platform: iOS
     sources: [Beans]
+    dependencies:
+      - package: Argon2Swift
+      - package: GRDB
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.beans.app
-        MARKETING_VERSION: "1.5.5"
-        CURRENT_PROJECT_VERSION: "36"
+        MARKETING_VERSION: "1.5.6"
+        CURRENT_PROJECT_VERSION: "38"
         TARGETED_DEVICE_FAMILY: "1"
+        IPHONEOS_DEPLOYMENT_TARGET: "26.0"
         SWIFT_OBJC_BRIDGING_HEADER: Beans/Beans-Bridging-Header.h
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
@@ -31,6 +43,7 @@ targets:
         UILaunchScreen:
           UIImageName: LaunchBackground
           UIColorName: LaunchBackgroundColor
+        UIRequiresFullScreen: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         UIFileSharingEnabled: true
@@ -38,12 +51,89 @@ targets:
         CADisableMinimumFrameDurationOnPhone: true
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+        NSCameraUsageDescription: 用于扫描 Beans 本体账号登录二维码并确认新设备
+
+  BeansMac:
+    type: application
+    platform: macOS
+    sources: [BeansMac]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.beans.music.mac
+        PRODUCT_NAME: Beans Music
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+    info:
+      path: BeansMac/Info.plist
+      properties:
+        CFBundleDisplayName: Beans Music
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.music
+        NSHighResolutionCapable: true
+
+  BeansCatalyst:
+    type: application
+    platform: iOS
+    sources: [Beans]
+    dependencies:
+      - package: Argon2Swift
+      - package: GRDB
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.beans.app.maccatalyst
+        PRODUCT_NAME: Beans Music
+        MARKETING_VERSION: "1.5.6"
+        CURRENT_PROJECT_VERSION: "38"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+        MACOSX_DEPLOYMENT_TARGET: "15.0"
+        SUPPORTS_MACCATALYST: YES
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        SWIFT_OBJC_BRIDGING_HEADER: Beans/Beans-Bridging-Header.h
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: Beans/Info.plist
+      properties:
+        CFBundleDisplayName: Beans Music
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UIBackgroundModes: [audio]
+        UILaunchScreen:
+          UIImageName: LaunchBackground
+          UIColorName: LaunchBackgroundColor
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        CADisableMinimumFrameDurationOnPhone: true
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSCameraUsageDescription: 用于扫描 Beans 本体账号登录二维码并确认新设备
 
 schemes:
   Beans:
     build:
       targets:
         Beans: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  BeansMac:
+    build:
+      targets:
+        BeansMac: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  BeansCatalyst:
+    build:
+      targets:
+        BeansCatalyst: all
     run:
       config: Debug
     archive:

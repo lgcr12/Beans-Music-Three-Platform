@@ -65,6 +65,16 @@ final class PlatformPreferenceStore: ObservableObject {
         save()
     }
 
+    var syncPayload: BeansPreferenceSyncPayload {
+        BeansPreferenceSyncPayload(enabledPlatforms: selectedRaw.sorted())
+    }
+
+    func applyRemote(_ value: BeansPreferenceSyncPayload) {
+        selectedRaw = Set(value.enabledPlatforms)
+        normalize()
+        UserDefaults.standard.set(Array(selectedRaw), forKey: Self.key)
+    }
+
     private func normalize() {
         let allowed = Set(SearchProvider.allCases.map(\.rawValue))
         selectedRaw = selectedRaw.intersection(allowed)
@@ -75,6 +85,10 @@ final class PlatformPreferenceStore: ObservableObject {
 
     private func save() {
         UserDefaults.standard.set(Array(selectedRaw), forKey: Self.key)
+        let payload = syncPayload
+        Task { @MainActor in
+            BeansAccountStore.shared.queueSync(entityType: "preference", entityID: "platforms", payload: payload)
+        }
     }
 }
 

@@ -33,6 +33,7 @@ struct RootView: View {
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var favorites: FavoritesStore
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("beans.themeMode") private var themeModeRaw = BeansThemeMode.system.rawValue
 
     @State private var selection: RootTab = .discover
@@ -82,6 +83,10 @@ struct RootView: View {
 
     var body: some View {
         let _ = theme.accent
+        Group {
+#if targetEnvironment(macCatalyst)
+            DesktopRootView(selection: $selection, showPlayer: $showPlayer)
+#else
         ZStack {
             // 系统原生 TabView：iOS 26 上 UITabBar 自动使用原生液态玻璃，
             // 按压折射反馈、拖动效果、高光均由系统渲染（与应用商店等系统 App 一致）。
@@ -125,6 +130,8 @@ struct RootView: View {
                 }
             }
         }
+#endif
+        }
         .preferredColorScheme(themeMode.colorScheme)
         .fullScreenCover(isPresented: $showPlayer) {
             PlayerView(isPresented: $showPlayer)
@@ -132,6 +139,7 @@ struct RootView: View {
                 .environmentObject(player)
                 .environmentObject(player.clock)
                 .environmentObject(auth)
+                .environmentObject(theme)
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.86), value: player.currentSong?.id)
         .animation(.easeInOut(duration: 0.22), value: selection)
@@ -150,11 +158,25 @@ struct RootView: View {
         .onChange(of: enableHighRefresh) { enabled in
             HighRefreshKeeper.shared.configure(enabled: enabled)
         }
+        .onChange(of: scenePhase) { phase in
+            switch phase {
+            case .background, .inactive:
+                player.persistCurrentPlaybackState()
+            case .active:
+                player.reactivateAudioSessionIfNeeded()
+            @unknown default:
+                break
+            }
+        }
         .onChange(of: disclaimerAccepted) { accepted in
             // 首次进入：确认免责声明后弹出更新说明
             if accepted, ChangelogStore.shouldShowWhatsNew {
                 showWhatsNew = true
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .beansOpenRootTab)) { notification in
+            guard let raw = notification.object as? String, let tab = RootTab(rawValue: raw) else { return }
+            selection = tab
         }
         .sheet(isPresented: $showWhatsNew) {
             WhatsNewSheet()

@@ -28,11 +28,13 @@ struct MiniPlayerView: View {
 
     var body: some View {
         let _ = theme.accent
-        Button {
-            BeansHaptics.tap()
-            showPlayer = true
-        } label: {
-            HStack(spacing: 12) {
+        HStack(spacing: 12) {
+            // 歌曲信息单独负责打开播放器，避免与右侧控制按钮形成嵌套 Button。
+            Button {
+                BeansHaptics.tap()
+                showPlayer = true
+            } label: {
+                HStack(spacing: 12) {
                 ZStack {
                     Circle()
                         .fill(theme.accent.highlight.opacity(0.32))
@@ -63,63 +65,77 @@ struct MiniPlayerView: View {
                         .truncationMode(.tail)
                         .animation(.easeInOut(duration: 0.25), value: currentLyricLine?.text)
                 }
-                Spacer(minLength: 8)
-                Button {
-                    BeansHaptics.tap()
-                    player.togglePlayPause()
-                } label: {
-                    PlayPauseMorphIcon(isPlaying: player.isPlaying, size: 16)
-                        .foregroundStyle(Color.beansLabel)
-                        .frame(width: 38, height: 38)
-                        .contentShape(Circle())
                 }
-                .buttonStyle(GlassPressButtonStyle())
-                Button {
-                    BeansHaptics.tap()
-                    player.next()
-                } label: {
-                    Image(systemName: "forward.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.beansLabel)
-                        .frame(width: 38, height: 38)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(GlassPressButtonStyle())
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.leading, 10)
-            .padding(.trailing, 6)
-            .padding(.vertical, 8)
-            .background {
-                // iOS 26 原生液态玻璃：背景 + 高光 + 描边三层
-                                BeansGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .overlay {
-                    LinearGradient(
-                        colors: [.white.opacity(0.25), .clear, .white.opacity(0.05)],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .strokeBorder(
-                            LinearGradient(
-                                colors: [.white.opacity(0.45), .white.opacity(0.08)],
-                                startPoint: .top, endPoint: .bottom
-                            ),
-                            lineWidth: 0.8
-                        )
-                }
+            .buttonStyle(.plain)
+
+            Button {
+                BeansHaptics.tap()
+                player.togglePlayPause()
+            } label: {
+                PlayPauseMorphIcon(isPlaying: player.isPlaying, size: 16)
+                    .foregroundStyle(Color.beansLabel)
+                    .frame(width: 38, height: 38)
+                    .contentShape(Circle())
             }
-            .overlay(alignment: .bottom) {
-                ProgressLine(progress: clock.progress, duration: clock.duration)
-                    .frame(height: 2.5)
-                    .padding(.horizontal, 12)
+            .buttonStyle(GlassPressButtonStyle())
+            Button {
+                BeansHaptics.tap()
+                player.next()
+            } label: {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.beansLabel)
+                    .frame(width: 38, height: 38)
+                    .contentShape(Circle())
             }
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .shadow(color: .black.opacity(0.16), radius: 12, y: 6)
-            .scaleEffect(showPlayer ? 0.985 : 1)
-            .animation(.spring(response: 0.34, dampingFraction: 0.86), value: showPlayer)
+            .buttonStyle(GlassPressButtonStyle())
         }
-        .buttonStyle(GlassPressButtonStyle(scale: 0.97))
+        .padding(.leading, 10)
+        .padding(.trailing, 6)
+        .padding(.vertical, 8)
+        .background {
+            ZStack {
+                // iOS 26 原生液态玻璃：背景 + 高光 + 描边三层
+                BeansGlass(shape: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .overlay {
+                        LinearGradient(
+                            colors: [.white.opacity(0.25), .clear, .white.opacity(0.05)],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        )
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [.white.opacity(0.45), .white.opacity(0.08)],
+                                    startPoint: .top, endPoint: .bottom
+                                ),
+                                lineWidth: 0.8
+                            )
+                    }
+
+                // 播放时显示轻量 Canvas 氛围，暂停时自动降低强度。
+                BeansParticleCanvas(
+                    accent: theme.accent.highlight,
+                    secondary: Color.beansSage,
+                    isPlaying: player.isPlaying,
+                    intensity: player.isPlaying ? 0.46 : 0.14
+                )
+                .opacity(0.58)
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+        }
+        .overlay(alignment: .bottom) {
+            ProgressLine(progress: clock.progress, duration: clock.duration)
+                .frame(height: 2.5)
+                .padding(.horizontal, 12)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: .black.opacity(0.16), radius: 12, y: 6)
+        .scaleEffect(showPlayer ? 0.985 : 1)
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: showPlayer)
         .padding(.horizontal, 12)
         .task(id: player.currentSong?.identityKey) {
             await loadMiniLyrics()

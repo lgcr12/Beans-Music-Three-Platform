@@ -32,6 +32,7 @@ final class AuthStore: ObservableObject {
         let playlists = (try? await NetEaseAPI.shared.userPlaylists(uid: account.uid)) ?? []
         user = account
         self.playlists = playlists.filter { $0.name != "我喜欢的音乐" }
+        BeansPlatformMirrorStore.shared.update(platform: "netease", playlists: self.playlists)
         isLoggedIn = true
         if let data = try? JSONEncoder().encode(account) {
             defaults.set(data, forKey: userKey)
@@ -59,6 +60,9 @@ final class AuthStore: ObservableObject {
         guard let user else { return }
         if let cached = try? await NetEaseAPI.shared.userPlaylists(uid: user.uid) {
             playlists = cached.filter { $0.name != "我喜欢的音乐" }
+            BeansPlatformMirrorStore.shared.update(platform: "netease", playlists: playlists)
+        } else if playlists.isEmpty {
+            playlists = BeansPlatformMirrorStore.shared.netease
         }
     }
 

@@ -432,6 +432,12 @@ final class QQMusicAPI {
 
     // MARK: - 播放 / 歌词
 
+    struct SongURLResult {
+        let url: String
+        let br: String
+        let attemptedBRs: [String]
+    }
+
     /// 指定音质获取播放地址（br: M800=320kbps 高质量 / M500=128kbps 低质量），下载用
     func songURL(songmid: String, mediaMid: String? = nil, br: String) async throws -> String? {
         let qqAuth = QQMusicAuth.shared
@@ -440,6 +446,43 @@ final class QQMusicAPI {
         let guid = Self.deviceGuid
         let resolvedMediaMid = await resolveMediaMid(songmid: songmid, provided: mediaMid, qqAuth: qqAuth)
         return try await vkeyURL(songmid: songmid, mediaMid: resolvedMediaMid, br: br, uin: uin, loginKey: loginKey, guid: guid, qqAuth: qqAuth)
+    }
+
+    /// 按当前音质获取官方播放地址，并记录已经尝试的音质，供 AVPlayer 实际失败时继续降级。
+    func songURLResult(
+        songmid: String,
+        mediaMid: String? = nil,
+        quality: BeansAudioQuality = .current
+    ) async throws -> SongURLResult? {
+        let qqAuth = QQMusicAuth.shared
+        let uin = qqAuth.isLoggedIn ? qqAuth.uin : "0"
+        let loginKey = qqAuth.isLoggedIn ? qqAuth.loginKey : ""
+        let guid = Self.deviceGuid
+        let resolvedMediaMid = await resolveMediaMid(songmid: songmid, provided: mediaMid, qqAuth: qqAuth)
+        let preferred: String
+        switch quality {
+        case .standard: preferred = "M500"
+        case .higher, .exhigh: preferred = "M800"
+        case .lossless, .hires: preferred = "F000"
+        }
+        let candidates = [preferred, "F000", "M800", "M500", "C400"]
+        var seen = Set<String>()
+        var attempted: [String] = []
+        for br in candidates where seen.insert(br).inserted {
+            attempted.append(br)
+            if let url = try await vkeyURL(
+                songmid: songmid,
+                mediaMid: resolvedMediaMid,
+                br: br,
+                uin: uin,
+                loginKey: loginKey,
+                guid: guid,
+                qqAuth: qqAuth
+            ) {
+                return SongURLResult(url: url, br: br, attemptedBRs: attempted)
+            }
+        }
+        return nil
     }
 
     /// 通过 vkey 获取 QQ 音乐播放地址（对齐 wp_MusicApi：GET + data JSON + filename + CDN 分发）
@@ -505,7 +548,7 @@ final class QQMusicAPI {
         ]
         var seenFilenames = Set<String>()
         filenames = filenames.filter { seenFilenames.insert($0).inserted }
-        var param: [String: Any] = [
+        let param: [String: Any] = [
             "filename": filenames,
             "guid": guid,
             "songmid": Array(repeating: songmid, count: filenames.count),
@@ -515,6 +558,7 @@ final class QQMusicAPI {
             "platform": "20",
         ]
         var comm: [String: Any] = ["uin": Int(uin) ?? 0, "format": "json", "ct": loginKey.isEmpty ? 24 : 19, "cv": 0]
+        comm["g_tk"] = qqAuth.gtk
         if !loginKey.isEmpty { comm["authst"] = loginKey }
         let payload: [String: Any] = [
             "comm": comm,
@@ -540,6 +584,7 @@ final class QQMusicAPI {
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0", forHTTPHeaderField: "User-Agent")
         request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        request.setValue("https://y.qq.com", forHTTPHeaderField: "Origin")
         request.setValue(qqAuth.isLoggedIn ? qqAuth.cookieHeader : "uin=0; qqmusic_fromtag=66", forHTTPHeaderField: "Cookie")
         let (responseData, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
@@ -554,7 +599,7 @@ final class QQMusicAPI {
             return nil
         }
         let sips = reqData["sip"] as? [String] ?? []
-        let cdnBases = sips.isEmpty ? ["https://isure.stream.qqmusic.qq.com/"] : sips
+        let cdnBases = Self.qqCDNBases(from: sips)
         for info in playableInfos {
             guard let purl = info["purl"] as? String, !purl.isEmpty else { continue }
             let candidateURLs: [String]
@@ -563,36 +608,38 @@ final class QQMusicAPI {
             } else {
                 candidateURLs = cdnBases.map { base in
                     let secureBase = base.hasPrefix("http://") ? "https://" + String(base.dropFirst("http://".count)) : base
-                    return secureBase + purl
+                    let suffix = purl.hasPrefix("/") ? String(purl.dropFirst()) : purl
+                    return secureBase + suffix
                 }
             }
             for candidate in candidateURLs {
                 guard let url = URL(string: candidate) else { continue }
-                if await probeAudioURL(url, cookie: qqAuth.isLoggedIn ? qqAuth.cookieHeader : "") {
-                    let filename = info["filename"] as? String ?? "unknown"
-                    BeansLogger.shared.log("QQ 音频地址验证成功：音质=\(br) 文件=\(filename)", level: .debug)
-                    return candidate
-                }
+                let filename = info["filename"] as? String ?? "unknown"
+                BeansLogger.shared.log("QQ vkey 已返回播放地址：音质=\(br) 文件=\(filename)", level: .debug)
+                return url.absoluteString
             }
         }
-        BeansLogger.shared.log("QQ vkey 返回地址但 CDN 验证失败：音质=\(br) 候选=\(playableInfos.count)", level: .debug)
+        BeansLogger.shared.log("QQ vkey 返回了地址但无法组成有效 CDN URL：音质=\(br) 候选=\(playableInfos.count)", level: .debug)
         return nil
     }
 
-    /// 在交给 AVPlayer 前验证 CDN，避免 purl 非空但实际 404 的假成功地址。
-    private func probeAudioURL(_ url: URL, cookie: String) async -> Bool {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 6
-        request.setValue("bytes=0-2047", forHTTPHeaderField: "Range")
-        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0", forHTTPHeaderField: "User-Agent")
-        request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
-        if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
-        guard let (data, response) = try? await session.data(for: request),
-              let http = response as? HTTPURLResponse,
-              http.statusCode == 200 || http.statusCode == 206,
-              !data.isEmpty else { return false }
-        let contentType = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
-        return !contentType.contains("text/html") && !contentType.contains("application/json")
+    private static func qqCDNBases(from sips: [String]) -> [String] {
+        let fallbacks = [
+            "https://isure.stream.qqmusic.qq.com/",
+            "https://dl.stream.qqmusic.qq.com/",
+            "https://ws.stream.qqmusic.qq.com/",
+            "https://streamoc.music.tc.qq.com/"
+        ]
+        var result: [String] = []
+        var seen = Set<String>()
+        for raw in sips + fallbacks {
+            var base = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !base.isEmpty else { continue }
+            if !base.hasPrefix("http://") && !base.hasPrefix("https://") { base = "https://" + base }
+            if !base.hasSuffix("/") { base += "/" }
+            if seen.insert(base.lowercased()).inserted { result.append(base) }
+        }
+        return result
     }
 
     /// 固定设备 GUID（持久化）：vkey 与 guid 强相关，随机 guid 会导致播放地址失效
@@ -840,16 +887,13 @@ final class QQMusicAPI {
 
     /// QQ 歌单项解析（字段对齐 Mineradio：dissid/tid/dirid/id/diss_id + diss_name/name/title…）
     private static func playlist(fromQQDiss item: [String: Any]) -> Playlist? {
-        let id = item["dissid"] as? Int
-            ?? (item["tid"] as? Int)
-            ?? (item["dirid"] as? Int)
-            ?? (item["id"] as? Int)
-            ?? Int(item["dissid"] as? String ?? "")
-            ?? Int(item["dirid"] as? String ?? "")
+        let numericID = ["dissid", "tid", "dirid", "id"].lazy.compactMap { item[$0] as? Int }.first
+        let stringID = ["dissid", "dirid"].lazy.compactMap { item[$0] as? String }.compactMap(Int.init).first
+        let id = numericID ?? stringID
         guard let id, id > 0 else { return nil }
         let name = item["diss_name"] as? String ?? (item["name"] as? String ?? item["title"] as? String ?? "")
         guard !name.isEmpty else { return nil }
-        let coverURL = [
+        let coverKeys = [
             "diss_cover",
             "dir_pic_url",
             "logo",
@@ -859,14 +903,11 @@ final class QQMusicAPI {
             "cover_url",
             "headurl",
             "imgurl",
-        ].lazy.compactMap { normalizedQQImageURL(item[$0]) }.first
-        let count = item["song_cnt"] as? Int
-            ?? (item["songnum"] as? Int)
-            ?? (item["total_song_num"] as? Int)
-            ?? (item["song_count"] as? Int)
-            ?? Int(item["song_cnt"] as? String ?? "")
-            ?? Int(item["songnum"] as? String ?? "")
-            ?? 0
+        ]
+        let coverURL = coverKeys.lazy.compactMap { normalizedQQImageURL(item[$0]) }.first
+        let numericCount = ["song_cnt", "songnum", "total_song_num", "song_count"].lazy.compactMap { item[$0] as? Int }.first
+        let stringCount = ["song_cnt", "songnum"].lazy.compactMap { item[$0] as? String }.compactMap(Int.init).first
+        let count = numericCount ?? stringCount ?? 0
         return Playlist(id: id, name: name, coverURL: coverURL, trackCount: count, source: .qq)
     }
 

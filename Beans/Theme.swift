@@ -195,6 +195,64 @@ enum BeansUIStyle: String, CaseIterable {
     }
 }
 
+/// 三张参考图对应的整套视觉预设：可以在“我的 → 外观”中随时切换。
+/// 预设只改变 Beans 自身的配色、材质和深浅模式，不触碰平台账号或本地音乐数据。
+enum BeansReferenceStyle: String, CaseIterable, Identifiable {
+    case aurora = "aurora"
+    case paper = "paper"
+    case midnight = "midnight"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .aurora: return "青碧玻璃"
+        case .paper: return "清透纸感"
+        case .midnight: return "午夜霓虹"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .aurora: return "参考图一 · 液态玻璃与自然光晕"
+        case .paper: return "参考图二 · 轻量留白与跨端一致"
+        case .midnight: return "参考图三 · 深色舞台与频谱高亮"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .aurora: return "water.waves"
+        case .paper: return "rectangle.on.rectangle"
+        case .midnight: return "waveform.path.ecg"
+        }
+    }
+
+    var accent: BeansAccent {
+        switch self {
+        case .aurora: return .mint
+        case .paper: return .emerald
+        case .midnight: return .cyber
+        }
+    }
+
+    var uiStyle: BeansUIStyle {
+        switch self {
+        case .aurora: return .liquid
+        case .paper: return .clear
+        case .midnight: return .outline
+        }
+    }
+
+    var themeMode: BeansThemeMode {
+        switch self {
+        case .aurora: return .system
+        case .paper: return .light
+        case .midnight: return .dark
+        }
+    }
+}
+
 // MARK: - 播放器按钮样式
 
 enum BeansPlayerButtonStyle: String, CaseIterable, Identifiable {
@@ -244,6 +302,8 @@ final class ThemeStore: ObservableObject {
     @Published var wallpaperPaths: [String] = []
     /// 全局 UI 风格：影响玻璃容器、卡片透明度与边框质感
     @Published var uiStyle: BeansUIStyle = .liquid
+    /// 参考图风格预设；切换时同步应用配色、材质和深浅模式。
+    @Published var referenceStyle: BeansReferenceStyle = .aurora
 
     private let customAccentKey = "beans.accent.custom"
     private let backgroundKey = "beans.background.custom"
@@ -253,6 +313,7 @@ final class ThemeStore: ObservableObject {
     private let wallpaperDataKey = "beans.wallpapers.data"
     private let deletedKey = "beans.wallpapers.deleted"
     private let uiStyleKey = "beans.uiStyle"
+    private let referenceStyleKey = "beans.referenceStyle"
 
     private init() {
         accent = BeansAccent(rawValue: UserDefaults.standard.string(forKey: AccentTheme.key) ?? "") ?? .amber
@@ -263,6 +324,7 @@ final class ThemeStore: ObservableObject {
         backgroundImagePath = UserDefaults.standard.string(forKey: backgroundImageKey) ?? ""
         wallpaperPaths = UserDefaults.standard.stringArray(forKey: wallpaperListKey) ?? []
         uiStyle = BeansUIStyle(rawValue: UserDefaults.standard.string(forKey: uiStyleKey) ?? "") ?? .liquid
+        referenceStyle = BeansReferenceStyle(rawValue: UserDefaults.standard.string(forKey: referenceStyleKey) ?? "") ?? .aurora
         // 自动恢复壁纸（覆盖安装/数据迁移后：文件仍在用文件，文件丢失用 base64 备份重建）
         restoreWallpapers()
     }
@@ -351,12 +413,25 @@ final class ThemeStore: ObservableObject {
         guard uiStyle != style else { return }
         uiStyle = style
         UserDefaults.standard.set(style.rawValue, forKey: uiStyleKey)
+        queueThemeSync()
+    }
+
+    func setReferenceStyle(_ style: BeansReferenceStyle) {
+        guard referenceStyle != style else { return }
+        referenceStyle = style
+        UserDefaults.standard.set(style.rawValue, forKey: referenceStyleKey)
+        // 预设需要同时更新系统外观与现有主题 token，保证旧页面也能立即跟随。
+        set(style.accent)
+        setUIStyle(style.uiStyle)
+        UserDefaults.standard.set(style.themeMode.rawValue, forKey: "beans.themeMode")
+        queueThemeSync()
     }
 
     func set(_ newAccent: BeansAccent) {
         guard accent != newAccent else { return }
         accent = newAccent
         UserDefaults.standard.set(newAccent.rawValue, forKey: AccentTheme.key)
+        queueThemeSync()
     }
 
     /// 自定义强调色（色盘选色）
@@ -364,6 +439,7 @@ final class ThemeStore: ObservableObject {
         let normalized = hex?.isEmpty == true ? nil : hex
         customAccentHex = normalized
         UserDefaults.standard.set(normalized ?? "", forKey: customAccentKey)
+        queueThemeSync()
     }
 
     func clearCustomAccent() {
@@ -374,11 +450,52 @@ final class ThemeStore: ObservableObject {
     func setBackground(_ hex: String) {
         backgroundHex = hex
         UserDefaults.standard.set(hex, forKey: backgroundKey)
+        queueThemeSync()
     }
 
     func setBackgroundSyncAll(_ on: Bool) {
         backgroundSyncAll = on
         UserDefaults.standard.set(on, forKey: syncAllKey)
+        queueThemeSync()
+    }
+
+    var syncPayload: BeansThemeSyncPayload {
+        BeansThemeSyncPayload(
+            referenceStyle: referenceStyle.rawValue,
+            accent: accent.rawValue,
+            customAccentHex: customAccentHex,
+            backgroundHex: backgroundHex,
+            backgroundSyncAll: backgroundSyncAll,
+            uiStyle: uiStyle.rawValue,
+            fontScalePercent: Int(TextScaleStore.shared.percent)
+        )
+    }
+
+    func applyRemote(_ value: BeansThemeSyncPayload) {
+        guard let style = BeansReferenceStyle(rawValue: value.referenceStyle),
+              let nextAccent = BeansAccent(rawValue: value.accent),
+              let nextUIStyle = BeansUIStyle(rawValue: value.uiStyle) else { return }
+        referenceStyle = style
+        accent = nextAccent
+        customAccentHex = value.customAccentHex
+        backgroundHex = value.backgroundHex
+        backgroundSyncAll = value.backgroundSyncAll
+        uiStyle = nextUIStyle
+        UserDefaults.standard.set(style.rawValue, forKey: referenceStyleKey)
+        UserDefaults.standard.set(nextAccent.rawValue, forKey: AccentTheme.key)
+        UserDefaults.standard.set(value.customAccentHex ?? "", forKey: customAccentKey)
+        UserDefaults.standard.set(value.backgroundHex, forKey: backgroundKey)
+        UserDefaults.standard.set(value.backgroundSyncAll, forKey: syncAllKey)
+        UserDefaults.standard.set(nextUIStyle.rawValue, forKey: uiStyleKey)
+        UserDefaults.standard.set(style.themeMode.rawValue, forKey: "beans.themeMode")
+        TextScaleStore.shared.setPercent(Double(value.fontScalePercent ?? 100), sync: false)
+    }
+
+    private func queueThemeSync() {
+        let payload = syncPayload
+        Task { @MainActor in
+            BeansAccountStore.shared.queueSync(entityType: "theme", entityID: "current", payload: payload)
+        }
     }
 
     /// 自定义强调色 Color

@@ -57,14 +57,14 @@ struct DiscoverView: View {
     var body: some View {
         let _ = theme.accent
         ZStack {
-            // 主页背景：壁纸/背景色永远在发现页生效（homeMode），同步开启时其他页面也生效
-            GlassBackdrop(customColor: theme.customBackground, homeMode: true)
+            referenceBackdrop
             // 实例级 UITabBar 清透风格（固定全透明，无需调节）
             TabBarAppearanceConfigurator()
             ScrollView {
                 ScrollViewReader { proxy in
-                VStack(alignment: .leading, spacing: 26) {
+                VStack(alignment: .leading, spacing: contentSpacing) {
                     header
+                    referenceHero
                     providerPicker
                     if let errorMessage {
                         ErrorStateView(message: errorMessage) {
@@ -88,7 +88,7 @@ struct DiscoverView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, horizontalPadding)
                 .padding(.top, 8)
                 .padding(.bottom, 190)
                 }
@@ -165,15 +165,216 @@ struct DiscoverView: View {
         }
     }
 
+    @ViewBuilder
+    private var referenceBackdrop: some View {
+        switch theme.referenceStyle {
+        case .aurora:
+            GlassBackdrop(customColor: theme.customBackground, homeMode: true)
+            BeansParticleCanvas(
+                accent: Color.beansHighlight,
+                secondary: Color.beansSage,
+                isPlaying: player.isPlaying,
+                intensity: 0.72
+            )
+            .opacity(0.62)
+        case .paper:
+            Color(uiColor: .systemGroupedBackground)
+                .ignoresSafeArea()
+        case .midnight:
+            LinearGradient(
+                colors: [Color(red: 0.005, green: 0.015, blue: 0.027), Color(red: 0.01, green: 0.045, blue: 0.075), .black],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    private var contentSpacing: CGFloat {
+        theme.referenceStyle == .paper ? 18 : 26
+    }
+
+    private var horizontalPadding: CGFloat {
+        theme.referenceStyle == .paper ? 14 : 16
+    }
+
+    @ViewBuilder
+    private var referenceHero: some View {
+        switch theme.referenceStyle {
+        case .aurora:
+            auroraReferenceHero
+        case .paper:
+            paperReferenceSummary
+        case .midnight:
+            midnightReferenceStage
+        }
+    }
+
+    private var referenceSong: Song? {
+        player.currentSong ?? dailySongs.first
+    }
+
+    private func playReferenceSong() {
+        if player.currentSong != nil {
+            player.togglePlayPause()
+        } else if let song = dailySongs.first {
+            player.playSong(song, in: dailySongs)
+        }
+    }
+
+    private var auroraReferenceHero: some View {
+        Button {
+            BeansHaptics.medium()
+            playReferenceSong()
+        } label: {
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.06, green: 0.40, blue: 0.32).opacity(0.96),
+                                Color(red: 0.08, green: 0.20, blue: 0.16).opacity(0.86),
+                                Color(red: 0.63, green: 0.42, blue: 0.16).opacity(0.58)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                if let coverURL = referenceSong?.coverURL {
+                    AsyncImage(url: coverURL) { phase in
+                        if case .success(let image) = phase {
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .blur(radius: 10)
+                                .opacity(0.30)
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(greeting)
+                        .font(BeansFont.appFont(25, .bold))
+                    Text(referenceSong?.name ?? "让音乐陪你开始今天")
+                        .font(BeansFont.appFont(13, .medium))
+                        .foregroundStyle(.white.opacity(0.76))
+                        .lineLimit(1)
+                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Color(red: 0.02, green: 0.22, blue: 0.17))
+                        .frame(width: 38, height: 38)
+                        .background(Color(red: 0.34, green: 0.93, blue: 0.72), in: Circle())
+                        .padding(.top, 3)
+                }
+                .foregroundStyle(.white)
+                .padding(18)
+            }
+            .frame(height: 148)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(.white.opacity(0.18), lineWidth: 0.8)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(GlassPressButtonStyle(scale: 0.98))
+        .accessibilityLabel(referenceSong == nil ? "开始播放推荐音乐" : "播放或暂停\(referenceSong?.name ?? "音乐")")
+    }
+
+    private var paperReferenceSummary: some View {
+        HStack(spacing: 0) {
+            paperSummaryItem(icon: "sparkles", title: "每日推荐", value: "\(dailySongs.count) 首")
+            Divider().frame(height: 42)
+            paperSummaryItem(icon: "chart.bar.fill", title: "排行榜", value: "\(visibleRankCount) 个")
+            Divider().frame(height: 42)
+            paperSummaryItem(icon: "rectangle.stack.fill", title: "精选歌单", value: "\(personalized.count) 个")
+        }
+        .padding(.vertical, 12)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.black.opacity(0.07), lineWidth: 0.8)
+        }
+    }
+
+    private func paperSummaryItem(icon: String, title: String, value: String) -> some View {
+        VStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color.beansAmber)
+            Text(title)
+                .font(BeansFont.appFont(11, .semibold))
+                .foregroundStyle(Color.beansLabel)
+                .lineLimit(1)
+            Text(value)
+                .font(BeansFont.appFont(9, .medium))
+                .foregroundStyle(Color.beansComment)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var midnightReferenceStage: some View {
+        Button {
+            BeansHaptics.medium()
+            playReferenceSong()
+        } label: {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 14) {
+                    CoverImage(url: referenceSong?.coverURL, size: 104, cornerRadius: 12)
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(referenceSong?.name ?? "午夜电台")
+                            .font(BeansFont.appFont(20, .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                        Text(referenceSong?.artists ?? "选择一首歌进入沉浸舞台")
+                            .font(BeansFont.appFont(12))
+                            .foregroundStyle(.white.opacity(0.58))
+                            .lineLimit(1)
+                        HStack(spacing: 10) {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 36, height: 36)
+                                .background(Color(red: 0.96, green: 0.16, blue: 0.54), in: Circle())
+                            MobileReferenceSpectrum(isPlaying: player.isPlaying)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 38)
+                        }
+                    }
+                }
+
+                LinearGradient(
+                    colors: [Color.cyan, Color(red: 0.96, green: 0.16, blue: 0.54)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(height: 2)
+                .mask(alignment: .leading) { Rectangle().frame(maxWidth: .infinity) }
+            }
+            .padding(16)
+            .background(Color(red: 0.02, green: 0.06, blue: 0.10).opacity(0.92), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.cyan.opacity(0.28), lineWidth: 0.8)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(GlassPressButtonStyle(scale: 0.98))
+        .accessibilityLabel(referenceSong == nil ? "开始播放推荐音乐" : "播放或暂停\(referenceSong?.name ?? "音乐")")
+    }
+
     /// 顶部问候区：大标题 + 刷新按钮
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(greeting)
+                    Text(theme.referenceStyle == .aurora ? "Beans Music" : greeting)
                         .font(BeansFont.appFont(30, .bold))
                         .foregroundStyle(Color.beansLabel)
-                    Text(auth.user?.nickname ?? "发现好音乐")
+                    Text(headerSubtitle)
                         .font(BeansFont.appFont(13))
                         .foregroundStyle(Color.beansComment)
                 }
@@ -191,6 +392,15 @@ struct DiscoverView: View {
             }
         }
         .padding(.top, 8)
+    }
+
+    private var headerSubtitle: String {
+        if let nickname = auth.user?.nickname { return nickname }
+        switch theme.referenceStyle {
+        case .aurora: return "你的音乐，随处相伴"
+        case .paper: return "轻松整理每一首喜欢"
+        case .midnight: return "进入沉浸音乐舞台"
+        }
     }
 
     /// 平台选择（网易云 / QQ音乐 / 酷狗音乐，样式与搜索页一致）
@@ -715,6 +925,36 @@ struct DiscoverView: View {
     }
 }
 
+private struct MobileReferenceSpectrum: View {
+    let isPlaying: Bool
+
+    private let levels: [CGFloat] = [0.28, 0.48, 0.76, 0.42, 0.90, 0.58, 0.34, 0.70, 1.0, 0.62, 0.38, 0.82, 0.52, 0.30, 0.68, 0.94, 0.56, 0.36]
+
+    var body: some View {
+        GeometryReader { proxy in
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(Array(levels.enumerated()), id: \.offset) { index, level in
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: index < levels.count / 2
+                                    ? [.cyan, Color(red: 0.10, green: 0.55, blue: 1.0)]
+                                    : [Color(red: 0.67, green: 0.24, blue: 0.96), Color(red: 0.98, green: 0.18, blue: 0.50)],
+                                startPoint: .bottom,
+                                endPoint: .top
+                            )
+                        )
+                        .frame(maxWidth: .infinity)
+                        .frame(height: max(4, proxy.size.height * level * (isPlaying ? 1 : 0.62)))
+                }
+            }
+            .frame(maxHeight: .infinity)
+            .animation(.easeInOut(duration: 0.35), value: isPlaying)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - QQ 峰尖榜详情
 
 struct QQTopListDetailView: View {
@@ -810,6 +1050,7 @@ struct QQPlaylistSongsSheet: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var auth: AuthStore
     @EnvironmentObject private var theme: ThemeStore
+    @Environment(\.dismiss) private var dismiss
 
     let playlist: Playlist
     @State private var tracks: [Song] = []
@@ -865,6 +1106,17 @@ struct QQPlaylistSongsSheet: View {
             .navigationTitle(playlist.name)
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $searchText, prompt: "搜索歌单内歌曲")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .accessibilityLabel("关闭歌单")
+                }
+            }
         }
         .task { await load() }
     }

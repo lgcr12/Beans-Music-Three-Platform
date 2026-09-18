@@ -16,7 +16,7 @@ final class NetEaseAPI {
     private let nuid: String
     private let deviceId: String
     private let wnMcid: String
-    private let cookiesKey = "beans.netease.cookies"
+    private let legacyCookiesKey = "beans.netease.cookies"
     private var storedCookies: [String: String] = [:]
 
     init() {
@@ -30,9 +30,14 @@ final class NetEaseAPI {
         deviceId = Self.randomHex(length: 26)  // 52 位 hex
         wnMcid = "\(Self.randomLowercase(6)).\(Int(Date().timeIntervalSince1970 * 1000)).01.0"
 
-        if let data = UserDefaults.standard.data(forKey: cookiesKey),
-           let saved = try? JSONDecoder().decode([String: String].self, from: data) {
+        if let saved: [String: String] = BeansSecureStore.shared.codable([String: String].self, for: BeansSecureKey.neteaseCookies) {
             storedCookies = saved
+        } else if let data = UserDefaults.standard.data(forKey: legacyCookiesKey),
+                  let saved = try? JSONDecoder().decode([String: String].self, from: data) {
+            storedCookies = saved
+            if BeansSecureStore.shared.setCodable(saved, for: BeansSecureKey.neteaseCookies) {
+                UserDefaults.standard.removeObject(forKey: legacyCookiesKey)
+            }
         }
     }
 
@@ -108,7 +113,8 @@ final class NetEaseAPI {
 
     func clearCookies() {
         storedCookies.removeAll()
-        UserDefaults.standard.removeObject(forKey: cookiesKey)
+        BeansSecureStore.shared.remove(BeansSecureKey.neteaseCookies)
+        UserDefaults.standard.removeObject(forKey: legacyCookiesKey)
     }
 
     /// 应用内网页登录：将 WKWebView 中 music.163.com 的 Cookie 合并进登录态并持久化
@@ -120,9 +126,7 @@ final class NetEaseAPI {
                 changed = true
             }
         }
-        if changed, let data = try? JSONEncoder().encode(storedCookies) {
-            UserDefaults.standard.set(data, forKey: cookiesKey)
-        }
+        if changed { persistCookies() }
     }
 
     private func storeCookies(from response: HTTPURLResponse) {
@@ -140,10 +144,20 @@ final class NetEaseAPI {
                 }
             }
         }
-        if changed {
-            if let data = try? JSONEncoder().encode(storedCookies) {
-                UserDefaults.standard.set(data, forKey: cookiesKey)
-            }
+        if changed { persistCookies() }
+    }
+
+    func credentialSnapshot() -> [String: String] { storedCookies }
+
+    func restoreCredentialSnapshot(_ snapshot: [String: String]) {
+        guard !snapshot.isEmpty else { return }
+        storedCookies = snapshot
+        persistCookies()
+    }
+
+    private func persistCookies() {
+        if BeansSecureStore.shared.setCodable(storedCookies, for: BeansSecureKey.neteaseCookies) {
+            UserDefaults.standard.removeObject(forKey: legacyCookiesKey)
         }
     }
 
@@ -242,6 +256,9 @@ final class NetEaseAPI {
 
     func account() async throws -> NetEaseUser {
         let json = try await request("/api/w/nuser/account/get", payload: [:], crypto: "weapi")
+        if let code = json["code"] as? Int, [301, 401, 403].contains(code) {
+            throw NetEaseError.unauthorized
+        }
         guard let profile = json["profile"] as? [String: Any], let user = NetEaseUser(json: profile) else {
             throw NetEaseError.unknown("获取账号信息失败")
         }
@@ -590,6 +607,7 @@ final class NetEaseAPI {
 
 enum NetEaseError: LocalizedError {
     case network
+    case unauthorized
     case httpStatus(Int, String)
     case decoding(String)
     case unknown(String)
@@ -597,11 +615,20 @@ enum NetEaseError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .network: return "网络连接失败，请检查网络"
+        case .unauthorized: return "网易云登录已失效"
         case .httpStatus(let code, let snippet):
             return snippet.isEmpty ? "服务器响应异常（\(code)）" : "服务器响应异常（\(code)）\(snippet)"
         case .decoding(let snippet):
             return snippet.isEmpty ? "数据解析失败" : "数据解析失败：\(snippet)"
         case .unknown(let message): return message
+        }
+    }
+
+    var isAuthorizationFailure: Bool {
+        switch self {
+        case .unauthorized: return true
+        case .httpStatus(let code, _): return code == 401 || code == 403
+        default: return false
         }
     }
 }

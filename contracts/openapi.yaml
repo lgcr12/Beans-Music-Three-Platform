@@ -1,0 +1,413 @@
+openapi: 3.1.0
+info:
+  title: Beans Account and Sync API
+  version: 1.0.0
+  description: Beans 身份、密文保险库、设备与增量同步；不代理音乐或音频。
+servers:
+  - url: https://beans.example.com
+security:
+  - bearerAuth: []
+paths:
+  /v1/health:
+    get:
+      security: []
+      operationId: health
+      responses:
+        '200': { description: healthy }
+  /v1/auth/register/start:
+    post:
+      security: []
+      operationId: startRegistration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterStartRequest' }
+      responses:
+        '202':
+          description: verification sent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PendingRegistration' }
+  /v1/auth/verify-email:
+    post:
+      security: []
+      operationId: verifyEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerifyEmailRequest' }
+      responses:
+        '200':
+          description: verified
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+  /v1/auth/login/challenge:
+    post:
+      security: []
+      operationId: loginChallenge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { type: string, format: email } }
+      responses:
+        '200':
+          description: crypto parameters
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthChallenge' }
+  /v1/auth/login:
+    post:
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: logged in
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+  /v1/auth/refresh:
+    post:
+      security: []
+      operationId: refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties: { refreshToken: { type: string } }
+      responses:
+        '200':
+          description: rotated token pair
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+  /v1/auth/logout:
+    post:
+      operationId: logout
+      responses: { '204': { description: logged out } }
+  /v1/auth/password/reset/start:
+    post:
+      security: []
+      operationId: startPasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { type: string, format: email } }
+      responses: { '202': { description: accepted } }
+  /v1/auth/password/reset/complete:
+    post:
+      security: []
+      operationId: completePasswordReset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetRequest' }
+      responses: { '204': { description: reset; old vault and sessions revoked } }
+  /v1/devices:
+    get:
+      operationId: listDevices
+      responses:
+        '200':
+          description: devices
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/DeviceRecord' } }
+  /v1/devices/{deviceId}:
+    delete:
+      operationId: revokeDevice
+      parameters:
+        - in: path
+          name: deviceId
+          required: true
+          schema: { type: string, format: uuid }
+      responses: { '204': { description: revoked } }
+  /v1/qr-sessions:
+    post:
+      security: []
+      operationId: createQrSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateQrSessionRequest' }
+      responses:
+        '201':
+          description: created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QrSession' }
+  /v1/qr-sessions/{sessionId}:
+    get:
+      security: []
+      operationId: getQrSession
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QrSession' }
+  /v1/qr-sessions/{sessionId}/approve:
+    post:
+      operationId: approveQrSession
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApproveQrSessionRequest' }
+      responses: { '204': { description: approved } }
+  /v1/qr-sessions/{sessionId}/exchange:
+    post:
+      security: []
+      operationId: exchangeQrSession
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExchangeQrSessionRequest' }
+      responses:
+        '200':
+          description: exchanged once
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QrExchangeResult' }
+  /v1/vault:
+    get:
+      operationId: getVault
+      responses:
+        '200':
+          description: encrypted vault
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VaultEnvelope' }
+    put:
+      operationId: putVault
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VaultEnvelope' }
+      responses: { '204': { description: stored } }
+  /v1/sync:
+    get:
+      operationId: pullSync
+      parameters:
+        - in: query
+          name: cursor
+          schema: { type: integer, format: int64, default: 0 }
+      responses:
+        '200':
+          description: incremental records
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncPage' }
+  /v1/sync/batch:
+    post:
+      operationId: pushSync
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 200
+              items: { $ref: '#/components/schemas/SyncEnvelope' }
+      responses:
+        '200':
+          description: accepted records with server revisions
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/SyncEnvelope' } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    CryptoProfile:
+      type: object
+      required: [algorithm, salt, memoryKiB, iterations, parallelism]
+      properties:
+        algorithm: { type: string, const: argon2id-v1 }
+        salt: { type: string, format: byte }
+        memoryKiB: { type: integer, default: 65536 }
+        iterations: { type: integer, default: 3 }
+        parallelism: { type: integer, default: 2 }
+    DeviceInput:
+      type: object
+      required: [id, name, platform]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 80 }
+        platform: { type: string, enum: [ios, macos, windows] }
+    RegisterStartRequest:
+      type: object
+      required: [nickname, email, authSecret, cryptoProfile, wrappedVaultKey, device]
+      properties:
+        nickname: { type: string, minLength: 2, maxLength: 40 }
+        email: { type: string, format: email }
+        authSecret: { type: string, format: byte }
+        cryptoProfile: { $ref: '#/components/schemas/CryptoProfile' }
+        wrappedVaultKey: { type: string, format: byte }
+        device: { $ref: '#/components/schemas/DeviceInput' }
+    PendingRegistration:
+      type: object
+      required: [registrationId, expiresAt]
+      properties:
+        registrationId: { type: string, format: uuid }
+        expiresAt: { type: string, format: date-time }
+    VerifyEmailRequest:
+      type: object
+      required: [registrationId, code]
+      properties:
+        registrationId: { type: string, format: uuid }
+        code: { type: string, pattern: '^[0-9]{6}$' }
+    AuthChallenge:
+      type: object
+      required: [cryptoProfile]
+      properties: { cryptoProfile: { $ref: '#/components/schemas/CryptoProfile' } }
+    LoginRequest:
+      type: object
+      required: [email, authSecret, device]
+      properties:
+        email: { type: string, format: email }
+        authSecret: { type: string, format: byte }
+        device: { $ref: '#/components/schemas/DeviceInput' }
+    Account:
+      type: object
+      required: [id, nickname, email, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        nickname: { type: string }
+        email: { type: string, format: email }
+        createdAt: { type: string, format: date-time }
+    TokenPair:
+      type: object
+      required: [accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt]
+      properties:
+        accessToken: { type: string }
+        accessTokenExpiresAt: { type: string, format: date-time }
+        refreshToken: { type: string }
+        refreshTokenExpiresAt: { type: string, format: date-time }
+    AuthSession:
+      allOf:
+        - $ref: '#/components/schemas/TokenPair'
+        - type: object
+          required: [account, wrappedVaultKey]
+          properties:
+            account: { $ref: '#/components/schemas/Account' }
+            wrappedVaultKey: { type: string, format: byte }
+    PasswordResetRequest:
+      type: object
+      required: [email, code, authSecret, cryptoProfile, wrappedVaultKey]
+      properties:
+        email: { type: string, format: email }
+        code: { type: string, pattern: '^[0-9]{6}$' }
+        authSecret: { type: string, format: byte }
+        cryptoProfile: { $ref: '#/components/schemas/CryptoProfile' }
+        wrappedVaultKey: { type: string, format: byte }
+    DeviceRecord:
+      allOf:
+        - $ref: '#/components/schemas/DeviceInput'
+        - type: object
+          required: [createdAt, lastSeenAt, revoked]
+          properties:
+            createdAt: { type: string, format: date-time }
+            lastSeenAt: { type: string, format: date-time }
+            revoked: { type: boolean }
+    CreateQrSessionRequest:
+      type: object
+      required: [device, ephemeralPublicKey, exchangeSecret]
+      properties:
+        device: { $ref: '#/components/schemas/DeviceInput' }
+        ephemeralPublicKey: { type: string, format: byte }
+        exchangeSecret: { type: string, format: byte }
+    QrSession:
+      type: object
+      required: [id, status, verificationCode, expiresAt, device, ephemeralPublicKey]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [waiting, approved, exchanged, expired] }
+        verificationCode: { type: string, pattern: '^[0-9]{6}$' }
+        expiresAt: { type: string, format: date-time }
+        device: { $ref: '#/components/schemas/DeviceInput' }
+        ephemeralPublicKey: { type: string, format: byte }
+    ApproveQrSessionRequest:
+      type: object
+      required: [verificationCode, encryptedVaultKey]
+      properties:
+        verificationCode: { type: string }
+        encryptedVaultKey: { type: string, format: byte }
+    ExchangeQrSessionRequest:
+      type: object
+      required: [device, ephemeralPublicKey, exchangeSecret]
+      properties:
+        device: { $ref: '#/components/schemas/DeviceInput' }
+        ephemeralPublicKey: { type: string, format: byte }
+        exchangeSecret: { type: string, format: byte }
+    QrExchangeResult:
+      allOf:
+        - $ref: '#/components/schemas/TokenPair'
+        - type: object
+          required: [account, encryptedVaultKey]
+          properties:
+            account: { $ref: '#/components/schemas/Account' }
+            encryptedVaultKey: { type: string, format: byte }
+    VaultEnvelope:
+      type: object
+      required: [version, ciphertext, updatedAt]
+      properties:
+        version: { type: integer, format: int64 }
+        ciphertext: { type: string, format: byte }
+        updatedAt: { type: string, format: date-time }
+    SyncEnvelope:
+      type: object
+      required: [id, entityType, entityId, deviceId, baseRevision, deleted, ciphertext, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        entityType: { type: string, enum: [playlist, playlistItem, favorite, history, playback, theme, preference, platformMirror] }
+        entityId: { type: string }
+        deviceId: { type: string, format: uuid }
+        baseRevision: { type: integer, format: int64 }
+        revision: { type: integer, format: int64 }
+        deleted: { type: boolean }
+        ciphertext: { type: string, format: byte }
+        updatedAt: { type: string, format: date-time }
+    SyncPage:
+      type: object
+      required: [cursor, hasMore, records]
+      properties:
+        cursor: { type: integer, format: int64 }
+        hasMore: { type: boolean }
+        records: { type: array, items: { $ref: '#/components/schemas/SyncEnvelope' } }

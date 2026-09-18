@@ -24,7 +24,7 @@ struct LogViewerSheet: View {
                 if let importedText {
                     ScrollView {
                         Text(importedText)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(BeansFont.appFont(11, .regular, .monospaced))
                             .foregroundStyle(Color.beansLabel)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(14)

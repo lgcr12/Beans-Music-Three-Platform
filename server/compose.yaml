@@ -1,0 +1,61 @@
+services:
+  api:
+    build: ./Beans.Api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=beans;Username=beans;Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Redis: redis:6379
+      Beans__PublicBaseUrl: ${BEANS_PUBLIC_BASE_URL:-http://localhost:8080}
+      Beans__JwtSigningKey: ${BEANS_JWT_SIGNING_KEY}
+      Beans__ExposeVerificationCodes: ${BEANS_EXPOSE_CODES:-false}
+      Beans__Smtp__Host: ${SMTP_HOST:-mailpit}
+      Beans__Smtp__Port: ${SMTP_PORT:-1025}
+      Beans__Smtp__From: ${SMTP_FROM:-noreply@beans.local}
+      Beans__Smtp__UseSsl: ${SMTP_SSL:-false}
+      Beans__Smtp__Username: ${SMTP_USERNAME:-}
+      Beans__Smtp__Password: ${SMTP_PASSWORD:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: beans
+      POSTGRES_USER: beans
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: ["beans-postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U beans -d beans"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes: ["beans-redis:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    ports: ["8025:8025"]
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment: { BEANS_DOMAIN: "${BEANS_DOMAIN:-localhost}" }
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - beans-caddy-data:/data
+    depends_on: [api]
+volumes:
+  beans-postgres:
+  beans-redis:
+  beans-caddy-data:
