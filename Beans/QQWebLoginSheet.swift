@@ -179,7 +179,7 @@ struct QQCookieImportPanel: View {
         }
         auth.importCookies(dict, nickname: nil)
         guard auth.hasPlaybackCredential else {
-            message = "Cookie 中缺少 qm_keyst / qqmusic_key，请完整复制 QQ 音乐请求的 Cookie"
+            message = "Cookie 中缺少 qm_keyst / qqmusic_key / wxskey，请完整复制 QQ 音乐请求的 Cookie"
             return
         }
         message = "✓ QQ 音乐登录成功"

@@ -29,16 +29,16 @@ final class QQMusicAuth: ObservableObject {
         config.httpCookieAcceptPolicy = .never
         session = URLSession(configuration: config, delegate: redirectBlocker, delegateQueue: nil)
         if let saved: [String: String] = BeansSecureStore.shared.codable([String: String].self, for: BeansSecureKey.qqCookies), !saved.isEmpty {
-            cookies = saved
+            cookies = Self.normalizedCookies(saved)
             isLoggedIn = true
             nickname = defaults.string(forKey: nickKey) ?? ""
             vipBadge = defaults.string(forKey: vipKey)
         } else if let legacy = defaults.dictionary(forKey: legacyCookieKey) as? [String: String], !legacy.isEmpty {
-            cookies = legacy
+            cookies = Self.normalizedCookies(legacy)
             isLoggedIn = true
             nickname = defaults.string(forKey: nickKey) ?? ""
             vipBadge = defaults.string(forKey: vipKey)
-            if BeansSecureStore.shared.setCodable(legacy, for: BeansSecureKey.qqCookies) {
+            if BeansSecureStore.shared.setCodable(cookies, for: BeansSecureKey.qqCookies) {
                 defaults.removeObject(forKey: legacyCookieKey)
             }
         }
@@ -46,38 +46,50 @@ final class QQMusicAuth: ObservableObject {
 
     // MARK: - 登录状态
 
-    /// 登录 QQ 号（cookie uin 形如 o153140965）
+    /// 登录账号 ID。QQ 登录通常使用 uin，微信登录通常使用 wxuin。
     var uin: String {
-        let raw = cookies["uin"] ?? "0"
-        return raw.replacingOccurrences(of: "o", with: "")
+        Self.normalizedUIN(Self.accountID(from: cookies))
     }
 
-    /// 原始 uin（保留 o 前缀，歌单增删等写操作接口需要）
+    /// 原始账号 ID（保留 o 前缀，歌单增删等写操作接口需要）。
     var rawUin: String {
-        cookies["uin"] ?? "0"
+        Self.accountID(from: cookies)
     }
 
     /// g_tk（写操作接口签名；由 qqmusic_key/p_skey/skey 计算，未登录时为 5381）
     var gtk: Int {
-        let key = cookies["qqmusic_key"] ?? cookies["p_skey"] ?? cookies["skey"] ?? ""
+        let key = cookies["qqmusic_key"] ?? cookies["qm_keyst"] ?? cookies["wxskey"]
+            ?? cookies["wx_skey"] ?? cookies["p_skey"] ?? cookies["skey"] ?? ""
         return key.isEmpty ? 5381 : Self.hash5381(key)
     }
 
     /// 播放接口 authst。普通 QQ 网页的 p_skey 不是音乐播放密钥，不能填入 authst。
     var loginKey: String {
         cookies["qm_keyst"] ?? cookies["qqmusic_key"] ?? cookies["music_key"]
-            ?? cookies["wxskey"] ?? cookies["musickey"] ?? ""
+            ?? cookies["wxskey"] ?? cookies["wx_skey"] ?? cookies["musickey"] ?? ""
     }
 
     var hasPlaybackCredential: Bool { !loginKey.isEmpty }
 
     /// 发给 u.y.qq.com 的 Cookie 串（含 qqmusic_key 时 VIP 歌曲播放成功率最高）
     var cookieHeader: String {
-        let order = ["uin", "p_uin", "qm_keyst", "qqmusic_key", "music_key", "wxskey", "musickey", "p_skey", "skey", "pt4_token"]
-        return order.compactMap { key in
+        let order = [
+            "uin", "wxuin", "p_uin", "pt2gguin", "wxopenid",
+            "qm_keyst", "qqmusic_key", "music_key", "wxskey", "wx_skey",
+            "musickey", "p_skey", "skey", "pt4_token",
+        ]
+        var pairs = order.compactMap { key -> String? in
             guard let value = cookies[key], !value.isEmpty else { return nil }
             return "\(key)=\(value)"
-        }.joined(separator: "; ")
+        }
+        // 微信登录态常常只有 wxuin，但 vkey 服务仍读取 uin 字段。
+        let compatibilityCandidates: [String] = [cookies["p_uin"], cookies["pt2gguin"], cookies["wxuin"]]
+            .compactMap { $0 }
+        if !Self.hasUsableAccountID(cookies["uin"]),
+           let compatibleUIN = compatibilityCandidates.first(where: { Self.hasUsableAccountID($0) }) {
+            pairs.insert("uin=\(compatibleUIN)", at: 0)
+        }
+        return pairs.joined(separator: "; ")
     }
 
     func logout() {
@@ -97,19 +109,16 @@ final class QQMusicAuth: ObservableObject {
     /// 网页登录（WKWebView 读取）或手动粘贴 Cookie 导入登录态
     func importCookies(_ dict: [String: String], nickname: String?) {
         guard !dict.isEmpty else { return }
-        var imported = dict
-        if imported["uin"] == nil, let pUin = imported["p_uin"], !pUin.isEmpty {
-            imported["uin"] = pUin
-        }
+        let imported = Self.normalizedCookies(dict)
         let oldUin = uin
-        let newUin = (imported["uin"] ?? "").replacingOccurrences(of: "o", with: "")
+        let newUin = Self.normalizedUIN(Self.accountID(from: imported))
         if !oldUin.isEmpty, oldUin != "0", oldUin == newUin {
             cookies.merge(imported) { _, new in new }
         } else {
             cookies = imported
         }
         isLoggedIn = true
-        self.nickname = nickname ?? Self.fallbackNickname(dict)
+        self.nickname = nickname ?? Self.fallbackNickname(imported)
         persistCookies()
         defaults.set(self.nickname, forKey: nickKey)
         NotificationCenter.default.post(name: .beansQQLoginDidUpdate, object: nil)
@@ -118,13 +127,14 @@ final class QQMusicAuth: ObservableObject {
         Task { await self.fetchProfile() }
     }
 
-    /// Cookie 是否包含有效登录态（uin 非空且带任一有效凭证）
+    /// Cookie 是否包含有效登录态，兼容 QQ 登录的 uin 与微信登录的 wxuin。
     func hasValidLogin(_ dict: [String: String]) -> Bool {
-        let uin = (dict["uin"] ?? dict["p_uin"] ?? "").replacingOccurrences(of: "o", with: "")
+        let normalized = Self.normalizedCookies(dict)
+        let uin = Self.normalizedUIN(Self.accountID(from: normalized))
         guard !uin.isEmpty, uin != "0" else { return false }
-        let credentialKeys = ["p_skey", "skey", "qqmusic_key", "qm_keyst", "music_key", "wxskey", "musickey", "p_uin"]
+        let credentialKeys = ["p_skey", "skey", "qqmusic_key", "qm_keyst", "music_key", "wxskey", "wx_skey", "musickey"]
         return credentialKeys.contains { key in
-            guard let value = dict[key] else { return false }
+            guard let value = normalized[key] else { return false }
             return !value.isEmpty
         }
     }
@@ -154,7 +164,7 @@ final class QQMusicAuth: ObservableObject {
 
     /// 网页登录关注的 Cookie 名（WKWebView 读取时按此过滤）
     static let webCookieNames: Set<String> = [
-        "uin", "p_uin", "skey", "p_skey", "qqmusic_key", "qm_keyst", "music_key", "wxskey",
+        "uin", "wxuin", "p_uin", "wxopenid", "skey", "p_skey", "qqmusic_key", "qm_keyst", "music_key", "wxskey", "wx_skey",
         "musickey", "pt4_token", "pt2gguin", "pt_login_sig", "pt4_aid",
         "qmusic_s", "pgv_pvid", "pgv_info", "ptnick", "nick", "nickname",
     ]
@@ -166,7 +176,8 @@ final class QQMusicAuth: ObservableObject {
             let kv = part.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
             guard kv.count == 2 else { continue }
             let key = kv[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            let value = kv[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawValue = kv[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = rawValue.removingPercentEncoding ?? rawValue
             if !key.isEmpty, !value.isEmpty {
                 dict[key] = value
             }
@@ -181,8 +192,34 @@ final class QQMusicAuth: ObservableObject {
             return raw.removingPercentEncoding ?? raw
         }
         if let nick = dict["nick"], !nick.isEmpty { return nick }
-        let clean = (dict["uin"] ?? "").replacingOccurrences(of: "o", with: "")
+        let clean = normalizedUIN(accountID(from: dict))
         return clean.isEmpty ? "QQ音乐用户" : "QQ音乐用户 \(clean)"
+    }
+
+    private static func normalizedCookies(_ dict: [String: String]) -> [String: String] {
+        dict.reduce(into: [:]) { result, pair in
+            let value = pair.value.removingPercentEncoding ?? pair.value
+            if !pair.key.isEmpty, !value.isEmpty { result[pair.key] = value }
+        }
+    }
+
+    private static func accountID(from dict: [String: String]) -> String {
+        for key in ["uin", "p_uin", "pt2gguin", "wxuin"] {
+            if let value = dict[key], hasUsableAccountID(value) { return value }
+        }
+        return "0"
+    }
+
+    private static func normalizedUIN(_ value: String) -> String {
+        var result = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        while result.first == "o" { result.removeFirst() }
+        return result.isEmpty ? "0" : result
+    }
+
+    private static func hasUsableAccountID(_ value: String?) -> Bool {
+        guard let value else { return false }
+        let normalized = normalizedUIN(value)
+        return !normalized.isEmpty && normalized != "0"
     }
     // MARK: - 扫码登录
 

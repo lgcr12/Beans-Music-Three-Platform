@@ -409,6 +409,7 @@ final class PlayerManager: NSObject, ObservableObject {
             var resolvedThirdParty: UnblockService.Resolved?
             var qqOfficialBR: String?
             var attemptedQQOfficialBRs: [String] = []
+            var qqPlaybackFailure: QQMusicAPI.SongURLFailure?
             // 版权受限歌手（周杰伦）：允许第三方音源，但启用严格模式（歌名+歌手+时长三重匹配原唱，校验不过拒绝，绝不播放翻唱）
             // 免费听歌（灰色歌曲解锁）总开关：默认开启，优先使用内置预设音源兜底。
             let enableUnblock = defaults.object(forKey: "beans.enableUnblock") as? Bool ?? true
@@ -422,11 +423,13 @@ final class PlayerManager: NSObject, ObservableObject {
                 }
             } else if song.source == .qq, let mid = song.qqMid {
                 // 是否有播放权益以 vkey 实际返回为准；会员接口识别失败时也必须尝试官方地址。
-                let officialResult = try? await QQMusicAPI.shared.songURLResult(
+                let officialResolution = try? await QQMusicAPI.shared.resolveSongURL(
                     songmid: mid,
                     mediaMid: song.qqMediaMid,
                     quality: quality
                 )
+                let officialResult = officialResolution?.result
+                qqPlaybackFailure = officialResolution?.failure
                 urlString = officialResult?.url
                 qqOfficialBR = officialResult?.br
                 attemptedQQOfficialBRs = officialResult?.attemptedBRs ?? []
@@ -460,15 +463,16 @@ final class PlayerManager: NSObject, ObservableObject {
                     guard generation == self.loadGeneration else { return }
                     self.isBuffering = false
                     self.loadFailed = true
-                    if song.source != .kugou, self.shouldLockOfficialOnly(song) {
+                    if song.source == .qq, let qqPlaybackFailure {
+                        BeansLogger.shared.log("QQ 官方播放失败：\(song.name)｜\(qqPlaybackFailure.userMessage)", level: .error)
+                        ToastCenter.shared.show(qqPlaybackFailure.userMessage, duration: 4)
+                    } else if song.source != .kugou, self.shouldLockOfficialOnly(song) {
                         BeansLogger.shared.log("播放失败：\(song.name) - 未找到原唱音源（官方受限），拒绝翻唱版本", level: .error)
                         ToastCenter.shared.show("《\(song.name)》未找到原唱音源（官方受限），已停止播放，拒绝翻唱版本")
                     } else {
                         let hint = thirdPartyAttempted ? "（第三方音源尝试后无结果）" : "（第三方音源未命中）"
                         BeansLogger.shared.log("播放失败：\(song.name) - 无法解析播放地址\(hint)｜音质=\(quality.level) 免费听歌=\(enableUnblock ? "开" : "关")", level: .error)
-                        if song.source == .qq, QQMusicAuth.shared.isLoggedIn, !QQMusicAuth.shared.hasPlaybackCredential {
-                            ToastCenter.shared.show("QQ 音乐缺少会员播放凭证，请到账号中心重新授权")
-                        }
+                        ToastCenter.shared.show("无法解析播放地址，请稍后重试")
                     }
                 }
                 return

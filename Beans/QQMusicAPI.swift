@@ -438,6 +438,42 @@ final class QQMusicAPI {
         let attemptedBRs: [String]
     }
 
+    enum SongURLFailure: Equatable {
+        case missingPlaybackCredential
+        case serviceRejected(code: Int?)
+        case cdnRejected(statusCode: Int?)
+        case invalidResponse
+
+        var userMessage: String {
+            switch self {
+            case .missingPlaybackCredential:
+                return "QQ 音乐登录态缺少会员播放凭证，请在 QQ 音乐网页播放任意歌曲后重新同步 Cookie"
+            case .serviceRejected(let code):
+                if let code {
+                    return "QQ 音乐未授权当前账号播放这首歌（错误码 \(code)），请确认会员有效后重新授权"
+                }
+                return "QQ 音乐未授权当前账号播放这首歌，请确认会员有效后重新授权"
+            case .cdnRejected(let statusCode):
+                if let statusCode {
+                    return "QQ 音乐已返回地址，但音频服务器拒绝访问（HTTP \(statusCode)），请重新授权后再试"
+                }
+                return "QQ 音乐已返回地址，但音频服务器无法访问，请检查网络或重新授权"
+            case .invalidResponse:
+                return "QQ 音乐播放接口响应异常，请稍后重试"
+            }
+        }
+    }
+
+    struct SongURLResolution {
+        let result: SongURLResult?
+        let failure: SongURLFailure?
+    }
+
+    private struct VKeyResolution {
+        let url: String?
+        let failure: SongURLFailure?
+    }
+
     /// 指定音质获取播放地址（br: M800=320kbps 高质量 / M500=128kbps 低质量），下载用
     func songURL(songmid: String, mediaMid: String? = nil, br: String) async throws -> String? {
         let qqAuth = QQMusicAuth.shared
@@ -445,7 +481,7 @@ final class QQMusicAPI {
         let loginKey = qqAuth.isLoggedIn ? qqAuth.loginKey : ""
         let guid = Self.deviceGuid
         let resolvedMediaMid = await resolveMediaMid(songmid: songmid, provided: mediaMid, qqAuth: qqAuth)
-        return try await vkeyURL(songmid: songmid, mediaMid: resolvedMediaMid, br: br, uin: uin, loginKey: loginKey, guid: guid, qqAuth: qqAuth)
+        return try await vkeyURL(songmid: songmid, mediaMid: resolvedMediaMid, br: br, uin: uin, loginKey: loginKey, guid: guid, qqAuth: qqAuth).url
     }
 
     /// 按当前音质获取官方播放地址，并记录已经尝试的音质，供 AVPlayer 实际失败时继续降级。
@@ -454,6 +490,15 @@ final class QQMusicAPI {
         mediaMid: String? = nil,
         quality: BeansAudioQuality = .current
     ) async throws -> SongURLResult? {
+        try await resolveSongURL(songmid: songmid, mediaMid: mediaMid, quality: quality).result
+    }
+
+    /// 返回播放地址及明确失败原因，供播放器向用户提示授权、版权或 CDN 问题。
+    func resolveSongURL(
+        songmid: String,
+        mediaMid: String? = nil,
+        quality: BeansAudioQuality = .current
+    ) async throws -> SongURLResolution {
         let qqAuth = QQMusicAuth.shared
         let uin = qqAuth.isLoggedIn ? qqAuth.uin : "0"
         let loginKey = qqAuth.isLoggedIn ? qqAuth.loginKey : ""
@@ -468,9 +513,10 @@ final class QQMusicAPI {
         let candidates = [preferred, "F000", "M800", "M500", "C400"]
         var seen = Set<String>()
         var attempted: [String] = []
+        var failure: SongURLFailure?
         for br in candidates where seen.insert(br).inserted {
             attempted.append(br)
-            if let url = try await vkeyURL(
+            let resolution = try await vkeyURL(
                 songmid: songmid,
                 mediaMid: resolvedMediaMid,
                 br: br,
@@ -478,11 +524,19 @@ final class QQMusicAPI {
                 loginKey: loginKey,
                 guid: guid,
                 qqAuth: qqAuth
-            ) {
-                return SongURLResult(url: url, br: br, attemptedBRs: attempted)
+            )
+            if let url = resolution.url {
+                return SongURLResolution(
+                    result: SongURLResult(url: url, br: br, attemptedBRs: attempted),
+                    failure: nil
+                )
             }
+            failure = Self.preferredFailure(failure, resolution.failure)
         }
-        return nil
+        if qqAuth.isLoggedIn, !qqAuth.hasPlaybackCredential {
+            failure = .missingPlaybackCredential
+        }
+        return SongURLResolution(result: nil, failure: failure ?? .invalidResponse)
     }
 
     /// 通过 vkey 获取 QQ 音乐播放地址（对齐 wp_MusicApi：GET + data JSON + filename + CDN 分发）
@@ -495,7 +549,7 @@ final class QQMusicAPI {
         let resolvedMediaMid = await resolveMediaMid(songmid: songmid, provided: mediaMid, qqAuth: qqAuth)
         // 独家 VIP 曲库并不保证所有 MP3 档位都存在；按 320K、128K、M4A 依次验证回退。
         for br in ["M800", "M500", "C400"] {
-            if let url = try await vkeyURL(songmid: songmid, mediaMid: resolvedMediaMid, br: br, uin: uin, loginKey: loginKey, guid: guid, qqAuth: qqAuth) {
+            if let url = try await vkeyURL(songmid: songmid, mediaMid: resolvedMediaMid, br: br, uin: uin, loginKey: loginKey, guid: guid, qqAuth: qqAuth).url {
                 return url
             }
         }
@@ -527,8 +581,8 @@ final class QQMusicAPI {
         return mediaMid
     }
 
-    /// 单次 vkey 请求（GET musicu.fcg，data 参数格式与 wp_MusicApi 完全一致）
-    private func vkeyURL(songmid: String, mediaMid: String?, br: String, uin: String, loginKey: String, guid: String, qqAuth: QQMusicAuth) async throws -> String? {
+    /// vkey 标准文件名为 prefix + media_mid + extension；media_mid 无结果时再单独回退 songmid。
+    private func vkeyURL(songmid: String, mediaMid: String?, br: String, uin: String, loginKey: String, guid: String, qqAuth: QQMusicAuth) async throws -> VKeyResolution {
         // 音质与扩展名：M500/M800 为 mp3，F000（无损）为 flac
         let ext: String
         if br.hasPrefix("F") {
@@ -539,20 +593,38 @@ final class QQMusicAPI {
             ext = "mp3"
         }
         let preferredMid = (mediaMid?.isEmpty == false ? mediaMid : nil) ?? songmid
-        // QQ 官方 Web 格式为 prefix + songmid + media_mid；其余格式用于兼容不同年代接口。
-        var filenames = [
-            "\(br)\(songmid)\(preferredMid).\(ext)",
-            "\(br)\(preferredMid).\(ext)",
-            "\(br)\(songmid)\(songmid).\(ext)",
-            "\(br)\(songmid).\(ext)",
-        ]
-        var seenFilenames = Set<String>()
-        filenames = filenames.filter { seenFilenames.insert($0).inserted }
+        let fileMids = preferredMid == songmid ? [preferredMid] : [preferredMid, songmid]
+        var failure: SongURLFailure?
+        for fileMid in fileMids {
+            let resolution = try await requestVKey(
+                songmid: songmid,
+                filename: "\(br)\(fileMid).\(ext)",
+                br: br,
+                uin: uin,
+                loginKey: loginKey,
+                guid: guid,
+                qqAuth: qqAuth
+            )
+            if resolution.url != nil { return resolution }
+            failure = Self.preferredFailure(failure, resolution.failure)
+        }
+        return VKeyResolution(url: nil, failure: failure ?? .invalidResponse)
+    }
+
+    private func requestVKey(
+        songmid: String,
+        filename: String,
+        br: String,
+        uin: String,
+        loginKey: String,
+        guid: String,
+        qqAuth: QQMusicAuth
+    ) async throws -> VKeyResolution {
         let param: [String: Any] = [
-            "filename": filenames,
+            "filename": [filename],
             "guid": guid,
-            "songmid": Array(repeating: songmid, count: filenames.count),
-            "songtype": Array(repeating: 0, count: filenames.count),
+            "songmid": [songmid],
+            "songtype": [0],
             "uin": uin,
             "loginflag": 1,
             "platform": "20",
@@ -575,12 +647,16 @@ final class QQMusicAPI {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let dataString = String(data: data, encoding: .utf8),
-              var comps = URLComponents(string: "https://u.y.qq.com/cgi-bin/musicu.fcg") else { return nil }
+              var comps = URLComponents(string: "https://u.y.qq.com/cgi-bin/musicu.fcg") else {
+            return VKeyResolution(url: nil, failure: .invalidResponse)
+        }
         comps.queryItems = [
             URLQueryItem(name: "format", value: "json"),
             URLQueryItem(name: "data", value: dataString),
         ]
-        guard let url = comps.url else { return nil }
+        guard let url = comps.url else {
+            return VKeyResolution(url: nil, failure: .invalidResponse)
+        }
         var request = URLRequest(url: url)
         request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0", forHTTPHeaderField: "User-Agent")
         request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
@@ -591,15 +667,21 @@ final class QQMusicAPI {
               let json = parseJSON(responseData),
               let req = json["req_0"] as? [String: Any],
               let reqData = req["data"] as? [String: Any],
-              let infos = reqData["midurlinfo"] as? [[String: Any]] else { return nil }
+              let infos = reqData["midurlinfo"] as? [[String: Any]] else {
+            return VKeyResolution(url: nil, failure: .invalidResponse)
+        }
         let playableInfos = infos.filter { ($0["purl"] as? String)?.isEmpty == false }
         guard !playableInfos.isEmpty else {
-            let result = infos.first?["result"] ?? "unknown"
-            BeansLogger.shared.log("QQ vkey 无可播地址：音质=\(br) result=\(result) 已登录=\(qqAuth.isLoggedIn ? "是" : "否")", level: .debug)
-            return nil
+            let result = Self.integerValue(infos.first?["result"])
+            BeansLogger.shared.log("QQ vkey 无可播地址：音质=\(br) result=\(result.map(String.init) ?? "unknown") 已登录=\(qqAuth.isLoggedIn ? "是" : "否") 有播放凭证=\(loginKey.isEmpty ? "否" : "是")", level: .debug)
+            let failure: SongURLFailure = qqAuth.isLoggedIn && loginKey.isEmpty
+                ? .missingPlaybackCredential
+                : .serviceRejected(code: result)
+            return VKeyResolution(url: nil, failure: failure)
         }
         let sips = reqData["sip"] as? [String] ?? []
         let cdnBases = Self.qqCDNBases(from: sips)
+        var lastStatusCode: Int?
         for info in playableInfos {
             guard let purl = info["purl"] as? String, !purl.isEmpty else { continue }
             let candidateURLs: [String]
@@ -614,13 +696,58 @@ final class QQMusicAPI {
             }
             for candidate in candidateURLs {
                 guard let url = URL(string: candidate) else { continue }
-                let filename = info["filename"] as? String ?? "unknown"
-                BeansLogger.shared.log("QQ vkey 已返回播放地址：音质=\(br) 文件=\(filename)", level: .debug)
-                return url.absoluteString
+                let probe = await probeQQAudioURL(url, cookie: qqAuth.isLoggedIn ? qqAuth.cookieHeader : "")
+                lastStatusCode = probe.statusCode ?? lastStatusCode
+                BeansLogger.shared.log("QQ CDN 探测：音质=\(br) 主机=\(url.host ?? "unknown") HTTP=\(probe.statusCode.map(String.init) ?? "network") 可播放=\(probe.isPlayable ? "是" : "否")", level: .debug)
+                if probe.isPlayable {
+                    return VKeyResolution(url: url.absoluteString, failure: nil)
+                }
             }
         }
-        BeansLogger.shared.log("QQ vkey 返回了地址但无法组成有效 CDN URL：音质=\(br) 候选=\(playableInfos.count)", level: .debug)
+        BeansLogger.shared.log("QQ vkey 返回了地址但 CDN 均不可用：音质=\(br) 候选=\(playableInfos.count)", level: .debug)
+        return VKeyResolution(url: nil, failure: .cdnRejected(statusCode: lastStatusCode))
+    }
+
+    private func probeQQAudioURL(_ url: URL, cookie: String) async -> (isPlayable: Bool, statusCode: Int?) {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        request.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        request.setValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:80.0) Gecko/20100101 Firefox/80.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        request.setValue("https://y.qq.com", forHTTPHeaderField: "Origin")
+        if !cookie.isEmpty { request.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        do {
+            let (_, response) = try await session.bytes(for: request)
+            guard let http = response as? HTTPURLResponse else { return (false, nil) }
+            let accepted = http.statusCode == 200 || http.statusCode == 206
+            let contentType = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+            let rejectedPayload = contentType.contains("text/html") || contentType.contains("application/json")
+            return (accepted && !rejectedPayload, http.statusCode)
+        } catch {
+            return (false, nil)
+        }
+    }
+
+    private static func integerValue(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? NSNumber { return value.intValue }
+        if let value = value as? String { return Int(value) }
         return nil
+    }
+
+    private static func preferredFailure(_ current: SongURLFailure?, _ candidate: SongURLFailure?) -> SongURLFailure? {
+        guard let candidate else { return current }
+        guard let current else { return candidate }
+        func priority(_ failure: SongURLFailure) -> Int {
+            switch failure {
+            case .cdnRejected: return 4
+            case .serviceRejected(let code): return code == nil ? 2 : 3
+            case .missingPlaybackCredential: return 5
+            case .invalidResponse: return 1
+            }
+        }
+        return priority(candidate) > priority(current) ? candidate : current
     }
 
     private static func qqCDNBases(from sips: [String]) -> [String] {
