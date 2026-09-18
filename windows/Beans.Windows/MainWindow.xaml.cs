@@ -15,6 +15,7 @@ using Windows.Media.Playback;
 using Windows.System;
 using Windows.Storage.Streams;
 using Windows.UI.ViewManagement;
+using Ellipse = Microsoft.UI.Xaml.Shapes.Ellipse;
 using Rectangle = Microsoft.UI.Xaml.Shapes.Rectangle;
 
 namespace Beans.Windows;
@@ -762,7 +763,7 @@ public sealed partial class MainWindow : Window
             if (item.Content is TextBlock text)
             {
                 text.Foreground = index == current
-                    ? (_playerSettings.LyricStyle == "contrast" ? new SolidColorBrush(global::Windows.UI.Colors.White) : LyricHighlightBrush())
+                    ? (_playerSettings.LyricStyle == "contrast" ? new SolidColorBrush(global::Microsoft.UI.Colors.White) : LyricHighlightBrush())
                     : BrushResource("BeansMutedBrush");
             }
         }
@@ -1040,7 +1041,7 @@ public sealed partial class MainWindow : Window
         var playing = _mediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
         if (playing && _animationsEnabled && _playerSettings.EffectMode != "quiet")
         {
-            _visualTimer.Interval = TimeSpan.FromMilliseconds(Windows.System.Power.PowerManager.EnergySaverStatus == Windows.System.Power.EnergySaverStatus.On ? 50 : 33);
+            _visualTimer.Interval = TimeSpan.FromMilliseconds(global::Windows.System.Power.PowerManager.EnergySaverStatus == global::Windows.System.Power.EnergySaverStatus.On ? 50 : 33);
             _visualTimer.Start();
         }
         else
