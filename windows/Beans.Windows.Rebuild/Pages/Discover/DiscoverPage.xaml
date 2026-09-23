@@ -1,0 +1,124 @@
+<UserControl
+    x:Class="Beans.Windows.Rebuild.Pages.Discover.DiscoverPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:Beans.Windows.Rebuild.Models"
+    xmlns:badge="using:Beans.Windows.Rebuild.Controls.PlatformBadge"
+    xmlns:selector="using:Beans.Windows.Rebuild.Controls.PlatformSelector">
+    <Grid Background="{StaticResource ContentBackgroundBrush}">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="Narrow">
+                    <VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="0" /></VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ContentStack.Margin" Value="16,18,16,24" />
+                        <Setter Target="HeroPanel.Height" Value="172" />
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Compact">
+                    <VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="1024" /></VisualState.StateTriggers>
+                    <VisualState.Setters><Setter Target="ContentStack.Margin" Value="22,22,22,28" /><Setter Target="HeroPanel.Height" Value="190" /></VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Medium">
+                    <VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="1180" /></VisualState.StateTriggers>
+                    <VisualState.Setters><Setter Target="ContentStack.Margin" Value="24,24,24,30" /><Setter Target="HeroPanel.Height" Value="204" /></VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Wide">
+                    <VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="1360" /></VisualState.StateTriggers>
+                    <VisualState.Setters><Setter Target="ContentStack.Margin" Value="28,26,28,32" /><Setter Target="HeroPanel.Height" Value="214" /></VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+
+        <ScrollViewer x:Name="ContentScroll" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" ViewChanged="ContentScroll_ViewChanged">
+            <StackPanel x:Name="ContentStack" Margin="24" Spacing="24">
+                <Grid x:Name="HeaderGrid" RowSpacing="14">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="发现" Style="{StaticResource PageTitleTextStyle}" />
+                            <TextBlock x:Name="SubtitleText" Style="{StaticResource SecondaryTextStyle}" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Style="{StaticResource IconButtonStyle}" Click="Refresh_Click" AutomationProperties.Name="刷新当前平台">
+                            <FontIcon Glyph="&#xE72C;" FontSize="17" />
+                        </Button>
+                    </Grid>
+                    <selector:PlatformSelector x:Name="PlatformPicker" Grid.Row="1" PlatformChanged="PlatformPicker_PlatformChanged" />
+                </Grid>
+
+                <Grid MinHeight="36" ColumnSpacing="10">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <badge:PlatformBadge x:Name="StatusBadge" VerticalAlignment="Center" />
+                    <TextBlock x:Name="StatusText" Grid.Column="1" Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    <Button x:Name="LoginButton" Grid.Column="2" Content="账号与登录" Style="{StaticResource GhostButtonStyle}" Click="Login_Click" />
+                </Grid>
+
+                <ProgressBar x:Name="RefreshProgress" Height="3" IsIndeterminate="True" Visibility="Collapsed" Foreground="{StaticResource Primary500Brush}" />
+
+                <Border x:Name="ErrorPanel" Padding="14,10" Background="#10E34D59" BorderBrush="#45E34D59" BorderThickness="1" CornerRadius="6" Visibility="Collapsed">
+                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock x:Name="ErrorText" Foreground="{StaticResource DangerBrush}" VerticalAlignment="Center" /><Button Grid.Column="1" Content="重试" Style="{StaticResource GhostButtonStyle}" Click="Refresh_Click" /></Grid>
+                </Border>
+
+                <Border x:Name="HeroPanel" Height="204" CornerRadius="8" Background="{StaticResource SurfaceSecondaryBrush}">
+                    <Grid>
+                        <Image x:Name="HeroImage" Stretch="UniformToFill" />
+                        <Rectangle><Rectangle.Fill><LinearGradientBrush StartPoint="0,0.5" EndPoint="1,0.5"><GradientStop Color="#B8063E35" Offset="0" /><GradientStop Color="#57061E1B" Offset="0.55" /><GradientStop Color="#0F141412" Offset="1" /></LinearGradientBrush></Rectangle.Fill></Rectangle>
+                        <StackPanel Margin="32" MaxWidth="560" HorizontalAlignment="Left" VerticalAlignment="Center" Spacing="10">
+                            <badge:PlatformBadge x:Name="HeroBadge" HorizontalAlignment="Left" />
+                            <TextBlock x:Name="HeroTitle" FontSize="25" FontWeight="Bold" Foreground="White" TextWrapping="Wrap" />
+                            <TextBlock x:Name="HeroSubtitle" FontSize="13" Foreground="#E8FFFFFF" TextWrapping="Wrap" MaxLines="2" />
+                            <Button x:Name="HeroAction" HorizontalAlignment="Left" Style="{StaticResource PrimaryButtonStyle}" Click="HeroAction_Click" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <StackPanel Spacing="12">
+                    <Grid><TextBlock Text="排行榜" Style="{StaticResource SectionTitleTextStyle}" /><TextBlock Text="独立平台内容" Style="{StaticResource CaptionTextStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" /></Grid>
+                    <ListView x:Name="RankingList" Height="178" SizeChanged="RankingList_SizeChanged" IsItemClickEnabled="True" ItemClick="RankingList_ItemClick" SelectionMode="None" ScrollViewer.HorizontalScrollMode="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollMode="Disabled">
+                        <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListView.ItemsPanel>
+                        <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource MusicListViewItemStyle}"><Setter Property="Width" Value="264" /><Setter Property="Height" Value="170" /><Setter Property="Margin" Value="0,0,12,0" /><Setter Property="BorderThickness" Value="0" /></Style></ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:RankingSummary">
+                                <Border Style="{StaticResource SurfacePanelStyle}" Padding="10">
+                                    <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="92" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <Border Width="102" Height="146" CornerRadius="6"><Image Source="{x:Bind ImageUri}" Stretch="UniformToFill" /></Border>
+                                        <StackPanel Grid.Column="1" Spacing="7"><TextBlock Text="{x:Bind Title}" Style="{StaticResource CardTitleTextStyle}" TextWrapping="Wrap" MaxLines="2" /><badge:PlatformBadge Platform="{x:Bind Platform}" HorizontalAlignment="Left" /><TextBlock Text="{x:Bind UpdatedText}" Style="{StaticResource CaptionTextStyle}" />
+                                            <ItemsControl ItemsSource="{x:Bind TopTracks}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource CaptionTextStyle}" Margin="0,2,0,0" MaxLines="1" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+
+                <StackPanel Spacing="12">
+                    <TextBlock Text="推荐歌单" Style="{StaticResource SectionTitleTextStyle}" />
+                    <Border x:Name="RecommendedStatePanel" Padding="20" Style="{StaticResource SurfacePanelStyle}" Visibility="Collapsed"><StackPanel HorizontalAlignment="Center" Spacing="7"><FontIcon Glyph="&#xE8D6;" FontSize="24" Foreground="{StaticResource TextTertiaryBrush}" HorizontalAlignment="Center" /><TextBlock x:Name="RecommendedStateText" Style="{StaticResource SecondaryTextStyle}" TextAlignment="Center" TextWrapping="Wrap" /><Button Content="重新加载" Style="{StaticResource GhostButtonStyle}" Click="Refresh_Click" HorizontalAlignment="Center" /></StackPanel></Border>
+                    <ListView x:Name="RecommendedList" Height="236" IsItemClickEnabled="True" ItemClick="PlaylistList_ItemClick" SelectionMode="None" ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled">
+                        <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListView.ItemsPanel>
+                        <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource MusicListViewItemStyle}"><Setter Property="Width" Value="194" /><Setter Property="Height" Value="228" /><Setter Property="Margin" Value="0,0,14,0" /><Setter Property="BorderThickness" Value="0" /></Style></ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate><DataTemplate x:DataType="models:MusicPlaylist"><StackPanel Spacing="7"><Border Width="184" Height="164" CornerRadius="7"><Image Source="{x:Bind CoverUri}" Stretch="UniformToFill" /></Border><TextBlock Text="{x:Bind Title}" Style="{StaticResource CardTitleTextStyle}" MaxLines="1" /><Grid><badge:PlatformBadge Platform="{x:Bind Identity.Platform}" HorizontalAlignment="Left" /><TextBlock Text="{x:Bind Creator}" Style="{StaticResource CaptionTextStyle}" HorizontalAlignment="Right" MaxWidth="92" /></Grid></StackPanel></DataTemplate></ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+
+                <StackPanel Spacing="12">
+                    <Grid><TextBlock Text="歌单广场" Style="{StaticResource SectionTitleTextStyle}" /><TextBlock x:Name="SquareStatusText" Style="{StaticResource CaptionTextStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" /></Grid>
+                    <ScrollViewer HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled"><StackPanel x:Name="CategoryPanel" Orientation="Horizontal" Spacing="8" /></ScrollViewer>
+                    <ListView x:Name="SquareList" Height="236" IsItemClickEnabled="True" ItemClick="PlaylistList_ItemClick" SelectionMode="None" ScrollViewer.HorizontalScrollMode="Auto" ScrollViewer.HorizontalScrollBarVisibility="Hidden" ScrollViewer.VerticalScrollMode="Disabled">
+                        <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ListView.ItemsPanel>
+                        <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource MusicListViewItemStyle}"><Setter Property="Width" Value="194" /><Setter Property="Height" Value="228" /><Setter Property="Margin" Value="0,0,14,0" /><Setter Property="BorderThickness" Value="0" /></Style></ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate><DataTemplate x:DataType="models:MusicPlaylist"><StackPanel Spacing="7"><Border Width="184" Height="164" CornerRadius="7"><Image Source="{x:Bind CoverUri}" Stretch="UniformToFill" /></Border><TextBlock Text="{x:Bind Title}" Style="{StaticResource CardTitleTextStyle}" MaxLines="1" /><Grid><badge:PlatformBadge Platform="{x:Bind Identity.Platform}" HorizontalAlignment="Left" /><TextBlock Text="{x:Bind TrackCountText}" Style="{StaticResource CaptionTextStyle}" HorizontalAlignment="Right" /></Grid></StackPanel></DataTemplate></ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+
+                <Border x:Name="EmptyPanel" Padding="28" Style="{StaticResource SurfacePanelStyle}" Visibility="Collapsed"><StackPanel HorizontalAlignment="Center" Spacing="8"><FontIcon Glyph="&#xE8D6;" FontSize="28" Foreground="{StaticResource TextTertiaryBrush}" /><TextBlock Text="当前平台没有可显示内容" Style="{StaticResource SecondaryTextStyle}" /></StackPanel></Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid x:Name="InitialLoading" Background="#88F8FBFA" Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12"><ProgressRing IsActive="True" Foreground="{StaticResource Primary600Brush}" /><TextBlock Text="正在加载当前平台" Style="{StaticResource SecondaryTextStyle}" /></StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

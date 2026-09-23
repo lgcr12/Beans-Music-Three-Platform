@@ -1,0 +1,16 @@
+<UserControl
+    x:Class="Beans.Windows.Rebuild.Pages.Placeholder.PlaceholderPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Padding="40">
+        <StackPanel Width="420" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14">
+            <Border Width="56" Height="56" Background="{StaticResource Primary100Brush}" CornerRadius="28" HorizontalAlignment="Center">
+                <FontIcon Glyph="&#xE946;" FontSize="24" Foreground="{StaticResource Primary700Brush}" />
+            </Border>
+            <TextBlock Text="{x:Bind PageTitle}" Style="{StaticResource PageTitleTextStyle}" HorizontalAlignment="Center" />
+            <TextBlock Text="尚未完成" Style="{StaticResource PanelTitleTextStyle}" HorizontalAlignment="Center" />
+            <TextBlock x:Name="DetailText" Text="本页仅保留明确的路由占位，不会用 PreviewData 冒充真实业务功能。" Style="{StaticResource SecondaryTextStyle}" TextAlignment="Center" TextWrapping="Wrap" />
+            <Button Content="返回首页" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Center" Click="BackHome_Click" />
+        </StackPanel>
+    </Grid>
+</UserControl>

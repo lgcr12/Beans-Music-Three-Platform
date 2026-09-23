@@ -1,0 +1,24 @@
+{
+  "code": 0,
+  "data": {
+    "singer": {
+      "count": 1,
+      "itemlist": [
+        {
+          "mid": "ARTISTMID001",
+          "name": "周杰伦",
+          "singer": "华语歌手",
+          "pic": "//y.gtimg.cn/music/photo_new/T001R300x300M000ARTISTMID001.jpg"
+        }
+      ]
+    },
+    "song": {
+      "count": 1,
+      "itemlist": [{ "mid": "TRACKMID001", "name": "晴天", "singer": "周杰伦" }]
+    },
+    "album": {
+      "count": 1,
+      "itemlist": [{ "mid": "ALBUMMID001", "name": "叶惠美", "singer": "周杰伦" }]
+    }
+  }
+}

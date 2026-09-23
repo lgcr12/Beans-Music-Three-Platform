@@ -1,0 +1,7 @@
+{
+  "code": 0,
+  "data": {
+    "song": { "curnum": 0, "curpage": 1, "totalnum": 0, "list": [] },
+    "album": { "curnum": 0, "curpage": 1, "totalnum": 0, "list": [] }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "code": 200,
+  "result": {
+    "songCount": 42,
+    "songs": [
+      {
+        "id": 186016,
+        "name": "晴天",
+        "artists": [{ "id": 6452, "name": "周杰伦" }],
+        "album": {
+          "id": 18905,
+          "name": "叶惠美",
+          "picUrl": "http://p1.music.126.net/fixture-track.jpg"
+        },
+        "duration": 269000,
+        "fee": 1,
+        "h": { "br": 320000, "size": 10800000 }
+      },
+      {
+        "id": 185809,
+        "name": "稻香",
+        "ar": [{ "id": 6452, "name": "周杰伦" }],
+        "al": { "id": 18541, "name": "魔杰座" },
+        "dt": 223000,
+        "fee": 0,
+        "sq": { "br": 999000, "size": 27800000 }
+      }
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "required": "fixture",
+  "value": "42",
+  "items": ["alpha", "beta"]
+}

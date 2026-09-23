@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Beans.Windows.Rebuild.csproj" />
+  <Project Path="Tests/Beans.Windows.Rebuild.Tests.csproj" />
+</Solution>

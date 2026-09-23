@@ -1,0 +1,9 @@
+{
+  "code": 200,
+  "result": {
+    "songCount": 1,
+    "songs": [{ "id": 186016, "name": "晴天", "artists": [{ "name": "周杰伦" }], "album": { "name": "叶惠美" }, "duration": 269000 }],
+    "artistCount": 1,
+    "artists": [{ "id": 6452, "name": "周杰伦" }]
+  }
+}

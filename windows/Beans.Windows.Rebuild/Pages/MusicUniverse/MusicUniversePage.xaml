@@ -1,0 +1,125 @@
+<UserControl
+    x:Class="Beans.Windows.Rebuild.Pages.MusicUniverse.MusicUniversePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:universe="using:Beans.Windows.Rebuild.Services.MusicUniverse">
+    <Grid Background="{StaticResource ContentBackgroundBrush}">
+        <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24,24,24,32" Spacing="20">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="音乐宇宙" Style="{StaticResource PageTitleTextStyle}" />
+                        <TextBlock Text="从本机索引、收藏与真实播放记录中观察歌手、专辑和来源关系" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button x:Name="RefreshButton" Grid.Column="1" Content="刷新统计" Style="{StaticResource SecondaryButtonStyle}" Click="Refresh_Click" VerticalAlignment="Top" />
+                </Grid>
+
+                <Border x:Name="LoadingPanel" Style="{StaticResource SurfacePanelStyle}" Padding="24">
+                    <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
+                        <ProgressRing IsActive="True" Width="24" Height="24" />
+                        <TextBlock Text="正在读取本机音乐关系…" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="ErrorPanel" Visibility="Collapsed" Style="{StaticResource SurfacePanelStyle}" Padding="28">
+                    <StackPanel HorizontalAlignment="Center" Spacing="8">
+                        <FontIcon Glyph="&#xE783;" FontSize="28" Foreground="{StaticResource TextTertiaryBrush}" />
+                        <TextBlock Text="暂时无法生成音乐宇宙" Style="{StaticResource PanelTitleTextStyle}" />
+                        <TextBlock x:Name="ErrorText" Text="请稍后重试。" Style="{StaticResource SecondaryTextStyle}" TextAlignment="Center" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="EmptyPanel" Visibility="Collapsed" Style="{StaticResource SurfacePanelStyle}" Padding="32">
+                    <StackPanel HorizontalAlignment="Center" Spacing="8">
+                        <FontIcon Glyph="&#xE8D6;" FontSize="30" Foreground="{StaticResource TextTertiaryBrush}" />
+                        <TextBlock Text="还没有可建立关系的音乐数据" Style="{StaticResource PanelTitleTextStyle}" />
+                        <TextBlock Text="添加并扫描本地音乐，或收藏、播放真实歌曲后，这里会按实际记录生成关系。" Style="{StaticResource SecondaryTextStyle}" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="560" />
+                        <TextBlock Text="不会生成示例节点，也不会使用平台凭证或播放地址。" Style="{StaticResource CaptionTextStyle}" TextAlignment="Center" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <StackPanel x:Name="ContentPanel" Visibility="Collapsed" Spacing="20">
+                    <ItemsControl ItemsSource="{x:Bind Metrics}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="universe:MusicUniverseMetric">
+                                <Border Width="200" MinHeight="112" Margin="0,0,12,12" Style="{StaticResource SurfacePanelStyle}" Padding="16,13">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="{x:Bind Label}" Style="{StaticResource CaptionTextStyle}" />
+                                        <TextBlock Text="{x:Bind Value}" FontSize="24" FontWeight="SemiBold" />
+                                        <TextBlock Text="{x:Bind Detail}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="来源" Style="{StaticResource SectionTitleTextStyle}" />
+                        <ItemsControl ItemsSource="{x:Bind Sources}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="universe:MusicUniverseSourceInsight">
+                                    <Border Margin="0,0,0,8" Style="{StaticResource SurfacePanelStyle}" Padding="16,12">
+                                        <Grid ColumnDefinitions="180,*" ColumnSpacing="16">
+                                            <StackPanel Spacing="3"><TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" /><TextBlock Text="{x:Bind ItemCount}" Style="{StaticResource CaptionTextStyle}" /></StackPanel>
+                                            <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{x:Bind ContentText}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" /><TextBlock Text="{x:Bind EvidenceText}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" /></StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="歌手" Style="{StaticResource SectionTitleTextStyle}" />
+                        <ItemsControl ItemsSource="{x:Bind Artists}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="universe:MusicUniverseArtistInsight">
+                                    <Border Margin="0,0,0,8" Style="{StaticResource SurfacePanelStyle}" Padding="16,12">
+                                        <Grid ColumnDefinitions="220,*" ColumnSpacing="16">
+                                            <StackPanel Spacing="3"><TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /><TextBlock Text="{x:Bind SourceSummary}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" /></StackPanel>
+                                            <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{x:Bind TrackCountText}" Style="{StaticResource SecondaryTextStyle}" /><TextBlock Text="{x:Bind EvidenceText}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" /></StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="专辑" Style="{StaticResource SectionTitleTextStyle}" />
+                        <ItemsControl ItemsSource="{x:Bind Albums}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="universe:MusicUniverseAlbumInsight">
+                                    <Border Margin="0,0,0,8" Style="{StaticResource SurfacePanelStyle}" Padding="16,12">
+                                        <Grid ColumnDefinitions="220,*" ColumnSpacing="16">
+                                            <StackPanel Spacing="3"><TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" /><TextBlock Text="{x:Bind Artist}" Style="{StaticResource CaptionTextStyle}" TextTrimming="CharacterEllipsis" /></StackPanel>
+                                            <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{x:Bind TrackCountText}" Style="{StaticResource SecondaryTextStyle}" /><TextBlock Text="{x:Bind EvidenceText}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" /><TextBlock Text="{x:Bind SourceSummary}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" /></StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="可解释关系" Style="{StaticResource SectionTitleTextStyle}" />
+                        <ItemsControl ItemsSource="{x:Bind Relationships}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="universe:MusicUniverseRelationship">
+                                    <Border Margin="0,0,0,8" Style="{StaticResource SurfacePanelStyle}" Padding="16,12">
+                                        <StackPanel Spacing="4"><TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextWrapping="Wrap" /><TextBlock Text="{x:Bind EvidenceText}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" /></StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+
+                    <TextBlock x:Name="StatusText" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

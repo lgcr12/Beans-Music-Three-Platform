@@ -1,0 +1,94 @@
+<UserControl
+    x:Class="Beans.Windows.Rebuild.Pages.Player.PlayerPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:player="using:Beans.Windows.Rebuild.Pages.Player">
+    <Grid x:Name="RootGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Image x:Name="BackdropImage" Grid.RowSpan="3" Stretch="UniformToFill" Opacity="0.72" RenderTransformOrigin="0.5,0.5">
+            <Image.RenderTransform><ScaleTransform x:Name="BackdropScale" ScaleX="1.04" ScaleY="1.04" /></Image.RenderTransform>
+        </Image>
+        <Image x:Name="BackdropOverlayImage" Grid.RowSpan="3" Stretch="UniformToFill" Opacity="0.28" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5">
+            <Image.RenderTransform>
+                <TransformGroup>
+                    <ScaleTransform x:Name="OverlayScale" ScaleX="1.02" ScaleY="1.02" />
+                    <TranslateTransform x:Name="OverlayTransform" />
+                </TransformGroup>
+            </Image.RenderTransform>
+        </Image>
+        <Grid x:Name="BackdropTint" Grid.RowSpan="3">
+            <Grid.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                    <GradientStop Color="#8A07151C" Offset="0" />
+                    <GradientStop Color="#42040B10" Offset="0.52" />
+                    <GradientStop Color="#80050910" Offset="1" />
+                </LinearGradientBrush>
+            </Grid.Background>
+        </Grid>
+        <Border x:Name="LocalBlurVeil" Grid.RowSpan="3" Background="#18000000" IsHitTestVisible="False" Opacity="0.22" />
+        <Border x:Name="WaveOne" Grid.Row="1" Height="110" Width="900" HorizontalAlignment="Center" VerticalAlignment="Bottom" CornerRadius="80" Opacity="0.035">
+            <Border.RenderTransform><TranslateTransform x:Name="WaveOneTransform" /></Border.RenderTransform>
+        </Border>
+        <Border x:Name="WaveTwo" Grid.Row="1" Height="70" Width="700" HorizontalAlignment="Center" VerticalAlignment="Bottom" CornerRadius="60" Opacity="0.025">
+            <Border.RenderTransform><TranslateTransform x:Name="WaveTwoTransform" /></Border.RenderTransform>
+        </Border>
+        <Grid Grid.Row="0" Margin="24,18" ColumnSpacing="16">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Style="{StaticResource IconButtonStyle}" Click="Back_Click" AutomationProperties.Name="返回"><FontIcon Glyph="&#xE72B;" FontSize="19" /></Button>
+            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center"><TextBlock x:Name="HeaderTitle" Text="Beans Music" FontSize="16" FontWeight="SemiBold" /><TextBlock x:Name="HeaderSource" Text="正在播放" Style="{StaticResource CaptionTextStyle}" /></StackPanel>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><TextBlock Text="歌词风格" VerticalAlignment="Center" Style="{StaticResource CaptionTextStyle}" /><ComboBox x:Name="StyleSelector" Width="140" ItemsSource="{x:Bind VisualStyles}" DisplayMemberPath="Name" SelectionChanged="StyleSelector_SelectionChanged" AutomationProperties.Name="歌词播放器风格" /><TextBlock Text="字号" VerticalAlignment="Center" Style="{StaticResource CaptionTextStyle}" /><Slider x:Name="LyricSizeSlider" Width="82" Minimum="0.8" Maximum="1.4" Value="1" StepFrequency="0.05" ValueChanged="LyricSizeSlider_ValueChanged" AutomationProperties.Name="歌词字号" /><Button Style="{StaticResource GhostButtonStyle}" Click="Queue_Click" AutomationProperties.Name="打开播放队列"><StackPanel Orientation="Horizontal" Spacing="5"><FontIcon Glyph="&#xEA37;" /><TextBlock Text="队列" /></StackPanel></Button></StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1" Margin="28,0,28,18" ColumnSpacing="16">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="108" /><ColumnDefinition Width="*" /><ColumnDefinition Width="170" /></Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" VerticalAlignment="Top" Margin="0,30,0,0">
+                <Button x:Name="ArtworkBubbleButton" Width="92" Height="92" Padding="0" CornerRadius="46"
+                        Background="#30000000" BorderBrush="#66FFFFFF" BorderThickness="1"
+                        ToolTipService.ToolTip="展开当前歌曲信息" AutomationProperties.Name="当前歌曲信息">
+                    <Border Width="86" Height="86" CornerRadius="43" Background="#22000000">
+                        <Image Source="{x:Bind Player.ArtworkUri, Mode=OneWay}" Stretch="UniformToFill" />
+                    </Border>
+                    <Button.Flyout>
+                        <Flyout Placement="Right">
+                            <Border Width="250" Padding="16" CornerRadius="14" Background="#E8142028"
+                                    BorderBrush="#44FFFFFF" BorderThickness="1">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="{x:Bind Player.Title, Mode=OneWay}" FontSize="18" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind Player.Artist, Mode=OneWay}" Style="{StaticResource SecondaryTextStyle}" />
+                                    <TextBlock Text="{x:Bind Player.Album, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}" />
+                                    <Border Style="{StaticResource BadgeBorderStyle}" HorizontalAlignment="Left" Padding="9,4">
+                                        <TextBlock Text="{x:Bind Player.SourceLabel, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}" />
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+            </StackPanel>
+
+            <Grid Grid.Column="1" VerticalAlignment="Center" MaxWidth="700" HorizontalAlignment="Center">
+                <StackPanel x:Name="LyricStatePanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Visibility="Collapsed"><FontIcon Glyph="&#xE8D2;" FontSize="30" HorizontalAlignment="Center" /><TextBlock Text="当前歌曲没有可显示的歌词" Style="{StaticResource SecondaryTextStyle}" /></StackPanel>
+                <Border x:Name="LyricSweep" Height="54" Width="620" HorizontalAlignment="Center" VerticalAlignment="Center" CornerRadius="27" Opacity="0.2" IsHitTestVisible="False" Canvas.ZIndex="0">
+                    <Border.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,0"><GradientStop Color="#001DFFC8" Offset="0" /><GradientStop Color="#8A8FFFE0" Offset="0.5" /><GradientStop Color="#001DFFC8" Offset="1" /></LinearGradientBrush></Border.Background>
+                    <Border.RenderTransform><TranslateTransform x:Name="LyricSweepTransform" /></Border.RenderTransform>
+                </Border>
+                    <ListView x:Name="LyricList" ItemsSource="{x:Bind Lines}" SelectionMode="None" IsHitTestVisible="False" Background="Transparent" BorderThickness="0" HorizontalContentAlignment="Stretch" ScrollViewer.VerticalScrollBarVisibility="Hidden" AutomationProperties.Name="沉浸式歌词">
+                    <ListView.ItemTemplate><DataTemplate x:DataType="player:PlayerLyricRow"><StackPanel HorizontalAlignment="Center" Spacing="1" Margin="8,8"><TextBlock Text="{x:Bind Text, Mode=OneWay}" FontSize="{x:Bind FontSize, Mode=OneWay}" FontWeight="{x:Bind Weight, Mode=OneWay}" Foreground="{x:Bind Foreground, Mode=OneWay}" Opacity="{x:Bind Opacity, Mode=OneWay}" TextAlignment="Center" TextWrapping="Wrap" HorizontalAlignment="Center" /><TextBlock Text="{x:Bind Translation, Mode=OneWay}" FontSize="{x:Bind TranslationFontSize, Mode=OneWay}" Foreground="{x:Bind Foreground, Mode=OneWay}" Opacity="{x:Bind TranslationOpacity, Mode=OneWay}" TextAlignment="Center" TextWrapping="Wrap" HorizontalAlignment="Center" /></StackPanel></DataTemplate></ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+
+            <Border Grid.Column="2" x:Name="SidePanel" Background="#12000000" BorderBrush="#1FFFFFFF" BorderThickness="1" CornerRadius="14" Padding="10" VerticalAlignment="Top" Margin="0,54,0,0" MaxHeight="220"><StackPanel Spacing="6"><Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="歌词进度" FontWeight="SemiBold" /><TextBlock x:Name="LyricProgressText" Grid.Column="1" Style="{StaticResource CaptionTextStyle}" /></Grid><ProgressBar x:Name="LyricProgress" Height="3" Minimum="0" Maximum="1" /><TextBlock Text="当前歌词" Style="{StaticResource CaptionTextStyle}" /><TextBlock x:Name="SideCurrentLyric" Text="等待歌词" TextWrapping="Wrap" FontSize="14" MaxLines="2" /><TextBlock Text="下一句" Style="{StaticResource CaptionTextStyle}" Margin="0,3,0,0" /><TextBlock x:Name="SideNextLyric" Text="" TextWrapping="Wrap" Style="{StaticResource SecondaryTextStyle}" MaxLines="2" /></StackPanel></Border>
+        </Grid>
+
+        <Grid Grid.Row="2" Margin="18,0,18,12" Padding="16,9" Background="#66070D12" CornerRadius="14">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Grid Grid.Row="0" ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="48" /><ColumnDefinition Width="*" /><ColumnDefinition Width="48" /></Grid.ColumnDefinitions><TextBlock Text="{x:Bind Player.PositionText, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center" /><Slider x:Name="ProgressSlider" Grid.Column="1" Style="{StaticResource MusicSliderStyle}" Minimum="0" Maximum="{x:Bind Player.DurationSeconds, Mode=OneWay}" Value="{x:Bind Player.PositionSeconds, Mode=OneWay}" KeyUp="ProgressSlider_KeyUp" AutomationProperties.Name="播放进度" /><TextBlock Grid.Column="2" Text="{x:Bind Player.DurationText, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" /></Grid>
+            <Grid Grid.Row="1" Margin="0,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center"><TextBlock Text="{x:Bind Player.Title, Mode=OneWay}" FontWeight="SemiBold" MaxWidth="260" TextTrimming="CharacterEllipsis" /><TextBlock Text="{x:Bind Player.Artist, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}" MaxWidth="180" TextTrimming="CharacterEllipsis" /></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center" Spacing="8"><Button Style="{StaticResource IconButtonStyle}" Click="Shuffle_Click" AutomationProperties.Name="随机播放"><FontIcon Glyph="&#xE8B1;" FontSize="17" /></Button><Button Style="{StaticResource IconButtonStyle}" Click="Previous_Click" AutomationProperties.Name="上一首"><FontIcon Glyph="&#xE892;" FontSize="19" /></Button><Button Style="{StaticResource MainPlayButtonStyle}" Click="PlayPause_Click" AutomationProperties.Name="播放或暂停"><FontIcon Glyph="{x:Bind Player.PlayPauseGlyph, Mode=OneWay}" FontSize="22" /></Button><Button Style="{StaticResource IconButtonStyle}" Click="Next_Click" AutomationProperties.Name="下一首"><FontIcon Glyph="&#xE893;" FontSize="19" /></Button><Button Style="{StaticResource IconButtonStyle}" Click="Repeat_Click" AutomationProperties.Name="循环模式"><FontIcon Glyph="&#xE8EE;" FontSize="17" /></Button></StackPanel><StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" VerticalAlignment="Center"><Button x:Name="QualityButton" MinWidth="44" Height="34" Padding="6,0" Style="{StaticResource GhostButtonStyle}" AutomationProperties.Name="选择音质"><Button.Flyout><Flyout Placement="Top"><Border Background="{StaticResource SurfacePrimaryBrush}" BorderBrush="{StaticResource DividerBrush}" BorderThickness="1" CornerRadius="10" Padding="10"><StackPanel Width="200" Spacing="3"><TextBlock Text="播放音质" Style="{StaticResource PanelTitleTextStyle}" Margin="4,0,4,4" /><Button Content="标准" Tag="Standard" Click="QualityOption_Click" Style="{StaticResource GhostButtonStyle}" HorizontalContentAlignment="Left" /><Button Content="HQ · 高品质" Tag="High" Click="QualityOption_Click" Style="{StaticResource GhostButtonStyle}" HorizontalContentAlignment="Left" /><Button Content="SQ · 超高品质" Tag="VeryHigh" Click="QualityOption_Click" Style="{StaticResource GhostButtonStyle}" HorizontalContentAlignment="Left" /><Button Content="无损" Tag="Lossless" Click="QualityOption_Click" Style="{StaticResource GhostButtonStyle}" HorizontalContentAlignment="Left" /><Button Content="Hi-Res" Tag="HiRes" Click="QualityOption_Click" Style="{StaticResource GhostButtonStyle}" HorizontalContentAlignment="Left" /></StackPanel></Border></Flyout></Button.Flyout><TextBlock Text="{x:Bind Player.QualityLabel, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" /></Button><FontIcon Glyph="&#xE767;" FontSize="17" VerticalAlignment="Center" /><Slider x:Name="VolumeSlider" Width="92" Style="{StaticResource VolumeSliderStyle}" Minimum="0" Maximum="100" Value="{x:Bind Player.VolumePercent, Mode=OneWay}" ValueChanged="VolumeSlider_ValueChanged" AutomationProperties.Name="音量" /><Button Style="{StaticResource IconButtonStyle}" Click="Lyrics_Click" AutomationProperties.Name="歌词"><FontIcon Glyph="&#xE8D2;" /></Button></StackPanel></Grid>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -1,0 +1,16 @@
+{
+  "code": 200,
+  "result": {
+    "albumCount": 7,
+    "albums": [
+      {
+        "id": 18905,
+        "name": "叶惠美",
+        "picUrl": "https://p1.music.126.net/fixture-album.jpg",
+        "artist": { "id": 6452, "name": "周杰伦" },
+        "publishTime": 1059667200000,
+        "size": 11
+      }
+    ]
+  }
+}

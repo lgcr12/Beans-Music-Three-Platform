@@ -1,0 +1,23 @@
+{
+  "code": 0,
+  "req_1": {
+    "code": 0,
+    "data": {
+      "v_playlist": [
+        {
+          "tid": 880001,
+          "title": "Fixture Public Playlist",
+          "cover": "//y.gtimg.cn/music/common/upload/fixture/playlist-880001.jpg",
+          "songnum": 24,
+          "access_num": 123456,
+          "creator_info": { "nick": "QQ Music Editorial" }
+        },
+        {
+          "tid": 880002,
+          "title": "Fixture Optional Fields",
+          "pic_url": "/music/common/upload/fixture/playlist-880002.jpg"
+        }
+      ]
+    }
+  }
+}

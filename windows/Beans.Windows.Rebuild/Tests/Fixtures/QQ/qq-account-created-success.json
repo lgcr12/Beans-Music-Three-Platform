@@ -1,0 +1,13 @@
+{
+  "code": 0,
+  "data": {
+    "disslist": [
+      {
+        "tid": 9900,
+        "diss_name": "我的创建歌单",
+        "song_cnt": 8,
+        "diss_cover": "https://y.gtimg.cn/music/photo_new/T002R300x300M000CREATED.jpg"
+      }
+    ]
+  }
+}

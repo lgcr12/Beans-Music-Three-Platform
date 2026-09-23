@@ -1,0 +1,15 @@
+<UserControl x:Class="Beans.Windows.Rebuild.Pages.QueueLyrics.QueuePage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:models="using:Beans.Windows.Rebuild.Services.Playback">
+    <Grid Background="{StaticResource ContentBackgroundBrush}">
+        <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24" Spacing="18">
+                <Grid><StackPanel Spacing="5"><TextBlock Text="播放队列" Style="{StaticResource PageTitleTextStyle}"/><TextBlock Text="当前播放器队列由单一 PlaybackService 管理" Style="{StaticResource SecondaryTextStyle}"/></StackPanel><Button Content="清空队列" HorizontalAlignment="Right" Style="{StaticResource SecondaryButtonStyle}" Click="Clear_Click"/></Grid>
+                <Border Style="{StaticResource SurfacePanelStyle}" Padding="8">
+                    <ListView ItemsSource="{x:Bind Player.Queue}" SelectionMode="None" IsItemClickEnabled="True" ItemClick="Queue_ItemClick">
+                        <ListView.ItemTemplate><DataTemplate x:DataType="models:PlaybackItem"><Grid MinHeight="60" Padding="10,5" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="180"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="{x:Bind Title}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind Artist}" Style="{StaticResource CaptionTextStyle}"/></StackPanel><TextBlock Grid.Column="1" Text="{x:Bind SourceLabel}" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center"/><TextBlock Grid.Column="2" Text="{x:Bind QualityLabel}" Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center"/></Grid></DataTemplate></ListView.ItemTemplate>
+                    </ListView>
+                </Border>
+                <Border Padding="12" Background="{StaticResource Primary050Brush}"><TextBlock Text="{x:Bind StatusText, Mode=OneWay}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/></Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

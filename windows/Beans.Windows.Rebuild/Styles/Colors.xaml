@@ -1,0 +1,62 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Color x:Key="Primary700Color">#087A59</Color>
+    <Color x:Key="Primary600Color">#0A8F66</Color>
+    <Color x:Key="Primary500Color">#16A675</Color>
+    <Color x:Key="Primary400Color">#34BD8D</Color>
+    <Color x:Key="Primary200Color">#BDE9D9</Color>
+    <Color x:Key="Primary100Color">#DDF4EB</Color>
+    <Color x:Key="Primary050Color">#EFFAF6</Color>
+
+    <Color x:Key="TextPrimaryColor">#103C33</Color>
+    <Color x:Key="TextSecondaryColor">#4F6F68</Color>
+    <Color x:Key="TextTertiaryColor">#819B95</Color>
+    <Color x:Key="TextDisabledColor">#B4C4C0</Color>
+    <Color x:Key="AppBackgroundColor">#F3F8F6</Color>
+    <Color x:Key="ContentBackgroundColor">#F8FBFA</Color>
+    <Color x:Key="SurfacePrimaryColor">#FFFFFF</Color>
+    <Color x:Key="SurfaceSecondaryColor">#F4F8F7</Color>
+    <Color x:Key="DangerColor">#E34D59</Color>
+    <Color x:Key="WarningColor">#E69A20</Color>
+    <Color x:Key="SuccessColor">#16A36D</Color>
+    <Color x:Key="SidebarStartColor">#06483D</Color>
+    <Color x:Key="SidebarEndColor">#033C35</Color>
+    <Color x:Key="SidebarActiveColor">#168B69</Color>
+    <Color x:Key="SidebarTextColor">#F2FFFA</Color>
+    <Color x:Key="SidebarTextMutedColor">#C8DDD7</Color>
+
+    <SolidColorBrush x:Key="Primary700Brush" Color="{StaticResource Primary700Color}" />
+    <SolidColorBrush x:Key="Primary600Brush" Color="{StaticResource Primary600Color}" />
+    <SolidColorBrush x:Key="Primary500Brush" Color="{StaticResource Primary500Color}" />
+    <SolidColorBrush x:Key="Primary400Brush" Color="{StaticResource Primary400Color}" />
+    <SolidColorBrush x:Key="Primary200Brush" Color="{StaticResource Primary200Color}" />
+    <SolidColorBrush x:Key="Primary100Brush" Color="{StaticResource Primary100Color}" />
+    <SolidColorBrush x:Key="Primary050Brush" Color="{StaticResource Primary050Color}" />
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}" />
+    <SolidColorBrush x:Key="TextTertiaryBrush" Color="{StaticResource TextTertiaryColor}" />
+    <SolidColorBrush x:Key="TextDisabledBrush" Color="{StaticResource TextDisabledColor}" />
+    <SolidColorBrush x:Key="AppBackgroundBrush" Color="{StaticResource AppBackgroundColor}" />
+    <SolidColorBrush x:Key="ContentBackgroundBrush" Color="{StaticResource ContentBackgroundColor}" />
+    <SolidColorBrush x:Key="SurfacePrimaryBrush" Color="{StaticResource SurfacePrimaryColor}" />
+    <SolidColorBrush x:Key="SurfaceSecondaryBrush" Color="{StaticResource SurfaceSecondaryColor}" />
+    <SolidColorBrush x:Key="BorderDefaultBrush" Color="#1A103C33" />
+    <SolidColorBrush x:Key="BorderStrongBrush" Color="#33103C33" />
+    <SolidColorBrush x:Key="DividerBrush" Color="#10103C33" />
+    <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
+    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />
+    <SolidColorBrush x:Key="SidebarTextBrush" Color="{StaticResource SidebarTextColor}" />
+    <SolidColorBrush x:Key="SidebarTextMutedBrush" Color="{StaticResource SidebarTextMutedColor}" />
+    <SolidColorBrush x:Key="SidebarActiveBrush" Color="#B3168B69" />
+    <SolidColorBrush x:Key="SidebarHoverBrush" Color="#3316A675" />
+    <SolidColorBrush x:Key="TrackInactiveBrush" Color="#DCE8E4" />
+    <SolidColorBrush x:Key="FocusRingBrush" Color="{StaticResource Primary500Color}" />
+
+    <LinearGradientBrush x:Key="SidebarGradientBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="{StaticResource SidebarStartColor}" Offset="0" />
+        <GradientStop Color="{StaticResource SidebarEndColor}" Offset="1" />
+    </LinearGradientBrush>
+</ResourceDictionary>

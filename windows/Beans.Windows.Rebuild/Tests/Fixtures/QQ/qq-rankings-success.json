@@ -1,0 +1,25 @@
+{
+  "code": 0,
+  "data": {
+    "topList": [
+      {
+        "id": 26,
+        "topTitle": "Fixture Hot Chart",
+        "subTitle": "Updated today",
+        "picUrl": "//y.gtimg.cn/music/common/upload/fixture/ranking-26.jpg",
+        "songList": [
+          { "songname": "Fixture Song One", "singername": "Fixture Artist" },
+          { "songname": "Fixture Song Two", "singername": "Fixture Artist" },
+          { "songname": "Fixture Song Three", "singername": "Fixture Artist" }
+        ]
+      },
+      {
+        "id": 27,
+        "topTitle": "Fixture New Chart",
+        "updateTips": "Daily update",
+        "picUrl": "https://y.gtimg.cn/music/common/upload/fixture/ranking-27.jpg",
+        "songList": []
+      }
+    ]
+  }
+}

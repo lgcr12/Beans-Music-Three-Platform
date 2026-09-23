@@ -1,0 +1,16 @@
+{
+  "code": 200,
+  "result": {
+    "artistCount": 3,
+    "artists": [
+      {
+        "id": 6452,
+        "name": "周杰伦",
+        "picUrl": "http://p1.music.126.net/fixture-artist.jpg",
+        "img1v1Url": "https://p1.music.126.net/fixture-avatar.jpg",
+        "briefDesc": "华语歌手",
+        "alias": ["Jay Chou"]
+      }
+    ]
+  }
+}

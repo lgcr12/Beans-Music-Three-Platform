@@ -1,0 +1,75 @@
+<UserControl
+    x:Class="Beans.Windows.Rebuild.Pages.Library.LibraryPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:library="using:Beans.Windows.Rebuild.Services.Library">
+    <Grid Background="{StaticResource ContentBackgroundBrush}">
+        <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24,24,24,32" Spacing="24">
+                <Grid>
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="音乐库" Style="{StaticResource PageTitleTextStyle}" />
+                        <TextBlock Text="管理本机收藏和最近播放记录" Style="{StaticResource SecondaryTextStyle}" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                        <Button Content="新建歌单" Style="{StaticResource SecondaryButtonStyle}" Click="CreatePlaylist_Click" />
+                        <Button Content="导入本地音乐" Style="{StaticResource PrimaryButtonStyle}" Click="ImportLocal_Click" />
+                    </StackPanel>
+                </Grid>
+
+                <Border Style="{StaticResource SurfacePanelStyle}" Padding="20">
+                    <Grid ColumnSpacing="20">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4"><TextBlock Text="收藏歌曲" Style="{StaticResource CaptionTextStyle}" /><TextBlock x:Name="FavoriteTrackCountText" Text="0 首" FontSize="24" FontWeight="SemiBold" /><TextBlock Text="本机收藏" Style="{StaticResource CaptionTextStyle}" /></StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="4"><TextBlock Text="其他收藏" Style="{StaticResource CaptionTextStyle}" /><TextBlock x:Name="FavoriteContentCountText" Text="0 项" FontSize="24" FontWeight="SemiBold" /><TextBlock Text="歌单、专辑和歌手" Style="{StaticResource CaptionTextStyle}" /></StackPanel>
+                        <StackPanel Grid.Column="2" Spacing="4"><TextBlock Text="最近播放" Style="{StaticResource CaptionTextStyle}" /><TextBlock x:Name="HistoryCountText" Text="0 首" FontSize="24" FontWeight="SemiBold" /><TextBlock Text="同一歌曲自动去重" Style="{StaticResource CaptionTextStyle}" /></StackPanel>
+                        <StackPanel Grid.Column="3" Spacing="4"><TextBlock Text="数据位置" Style="{StaticResource CaptionTextStyle}" /><TextBlock Text="本机" FontSize="24" FontWeight="SemiBold" /><TextBlock Text="不保存播放地址或凭证" Style="{StaticResource CaptionTextStyle}" /></StackPanel>
+                    </Grid>
+                </Border>
+
+                <StackPanel Spacing="12">
+                    <Grid><TextBlock Text="我的歌单" Style="{StaticResource SectionTitleTextStyle}" /><TextBlock x:Name="StatusText" Text="正在读取音乐库…" HorizontalAlignment="Right" Style="{StaticResource CaptionTextStyle}" /></Grid>
+                    <Border Style="{StaticResource SurfacePanelStyle}" Padding="16">
+                        <StackPanel Spacing="8">
+                            <ItemsControl ItemsSource="{x:Bind BeansPlaylists}">
+                                <ItemsControl.ItemTemplate><DataTemplate><Grid Padding="8" ColumnDefinitions="*,Auto" Tapped="BeansPlaylist_Tapped"><TextBlock Text="{Binding Title}" FontWeight="SemiBold"/><TextBlock Grid.Column="1" Text="{Binding TrackCountText}" Style="{StaticResource CaptionTextStyle}"/></Grid></DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="还没有 Beans 歌单，请在“创建的歌单”中新建。" Visibility="{x:Bind BeansEmptyVisibility, Mode=OneWay}" Style="{StaticResource SecondaryTextStyle}" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Spacing="12">
+                    <Grid>
+                        <TextBlock Text="最近播放" Style="{StaticResource SectionTitleTextStyle}" />
+                        <Button x:Name="ClearHistoryButton" Content="清空记录" HorizontalAlignment="Right" Style="{StaticResource GhostButtonStyle}" Click="ClearHistory_Click" />
+                    </Grid>
+                    <Border x:Name="HistoryEmptyPanel" Style="{StaticResource SurfacePanelStyle}" Padding="28">
+                        <StackPanel HorizontalAlignment="Center" Spacing="8">
+                            <FontIcon Glyph="&#xE81C;" FontSize="28" Foreground="{StaticResource TextTertiaryBrush}" />
+                            <TextBlock Text="还没有播放记录" Style="{StaticResource PanelTitleTextStyle}" />
+                            <TextBlock Text="真实歌曲成功开始播放后会显示在这里。" Style="{StaticResource SecondaryTextStyle}" />
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="HistoryPanel" Style="{StaticResource SurfacePanelStyle}" Padding="8" Visibility="Collapsed">
+                        <ListView x:Name="HistoryList" IsItemClickEnabled="True" ItemClick="Track_ItemClick" SelectionMode="None">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="library:PlaybackHistoryEntry">
+                                    <Grid MinHeight="64" Padding="8,5" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="46" /><ColumnDefinition Width="*" /><ColumnDefinition Width="150" /><ColumnDefinition Width="82" /><ColumnDefinition Width="180" /></Grid.ColumnDefinitions>
+                                        <Border Width="46" Height="46" CornerRadius="5" Background="{StaticResource SurfaceSecondaryBrush}"><Image Source="{x:Bind CoverUri}" Stretch="UniformToFill" /></Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3"><TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" MaxLines="1" /><TextBlock Text="{x:Bind Artist}" Style="{StaticResource CaptionTextStyle}" MaxLines="1" /></StackPanel>
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Album}" Style="{StaticResource SecondaryTextStyle}" VerticalAlignment="Center" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="3" Text="{x:Bind DurationText}" Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center" />
+                                        <StackPanel Grid.Column="4" VerticalAlignment="Center" Spacing="3"><TextBlock Text="{x:Bind PlatformName}" Style="{StaticResource SecondaryTextStyle}" /><TextBlock Text="{x:Bind LastPlayedAtText}" Style="{StaticResource CaptionTextStyle}" /></StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Border>
+                </StackPanel>
+                <TextBlock Text="在线歌曲只保存平台与歌曲标识；再次播放时仍由统一播放源解析器获取最新地址。" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

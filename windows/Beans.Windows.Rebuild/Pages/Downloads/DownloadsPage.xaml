@@ -1,0 +1,86 @@
+<UserControl
+    x:Class="Beans.Windows.Rebuild.Pages.Downloads.DownloadsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:downloads="using:Beans.Windows.Rebuild.Services.Downloads">
+    <Grid Background="{StaticResource ContentBackgroundBrush}">
+        <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24,24,24,32" Spacing="20">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel Spacing="5">
+                        <TextBlock Text="下载管理" Style="{StaticResource PageTitleTextStyle}" />
+                        <TextBlock Text="管理已授权平台允许保存的离线音乐；播放地址不会自动转换为下载地址。" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="选择下载目录" Style="{StaticResource SecondaryButtonStyle}" HorizontalAlignment="Right" VerticalAlignment="Center" Click="ChooseFolder_Click" />
+                </Grid>
+
+                <Border Style="{StaticResource SurfacePanelStyle}" Padding="18">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="下载目录" Style="{StaticResource CaptionTextStyle}" />
+                            <TextBlock x:Name="DestinationText" Text="尚未加载" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxLines="1" />
+                            <TextBlock Text="目录仅保存任务产生的音频文件；取消任务会清理未完成的临时文件。" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="4" MinWidth="128">
+                            <TextBlock Text="任务摘要" Style="{StaticResource CaptionTextStyle}" />
+                            <TextBlock x:Name="SummaryText" Text="0 个任务" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock x:Name="StatusText" Text="正在加载下载记录" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Border Style="{StaticResource SurfacePanelStyle}" Padding="8">
+                    <Grid>
+                        <ListView x:Name="TaskList" SelectionMode="None" IsItemClickEnabled="False" ItemContainerStyle="{StaticResource MusicListViewItemStyle}">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="downloads:DownloadTaskSnapshot">
+                                    <Grid MinHeight="86" Padding="10,8" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="48" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="118" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Width="48" Height="48" CornerRadius="5" Background="{StaticResource SurfaceSecondaryBrush}" VerticalAlignment="Center">
+                                            <Image Source="{x:Bind ArtworkUri}" Stretch="UniformToFill" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                            <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{x:Bind Artist}" Style="{StaticResource CaptionTextStyle}" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                            <ProgressBar Value="{x:Bind ProgressPercent}" Maximum="100" Height="4" Margin="0,3,20,0" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3">
+                                            <TextBlock Text="{x:Bind SourceText}" Style="{StaticResource SecondaryTextStyle}" />
+                                            <TextBlock Text="{x:Bind QualityText}" Style="{StaticResource CaptionTextStyle}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="3">
+                                            <TextBlock Text="{x:Bind StateText}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{x:Bind ProgressText}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" MaxLines="2" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Spacing="6">
+                                            <Button Content="暂停" Tag="{x:Bind}" IsEnabled="{x:Bind CanPause}" Style="{StaticResource GhostButtonStyle}" Click="Pause_Click" />
+                                            <Button Content="继续" Tag="{x:Bind}" IsEnabled="{x:Bind CanResume}" Style="{StaticResource GhostButtonStyle}" Click="Resume_Click" />
+                                            <Button Content="取消" Tag="{x:Bind}" IsEnabled="{x:Bind CanCancel}" Style="{StaticResource GhostButtonStyle}" Click="Cancel_Click" />
+                                            <Button Content="移除" Tag="{x:Bind}" IsEnabled="{x:Bind CanRemove}" Style="{StaticResource GhostButtonStyle}" Click="Remove_Click" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+
+                        <StackPanel x:Name="EmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Padding="24,42">
+                            <FontIcon Glyph="&#xE896;" FontSize="32" Foreground="{StaticResource TextTertiaryBrush}" />
+                            <TextBlock Text="暂时没有下载任务" Style="{StaticResource PanelTitleTextStyle}" HorizontalAlignment="Center" />
+                            <TextBlock Text="仅当 QQ 音乐或网易云音乐明确返回可离线保存的授权源时，任务才会开始下载。" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" TextAlignment="Center" MaxWidth="520" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <TextBlock Text="当前平台若未开放离线下载，将显示“暂不支持”，不会使用试听地址、预览数据或伪造链接。" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>
