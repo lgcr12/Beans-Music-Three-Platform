@@ -102,17 +102,65 @@ Windows 主线不是“只有一个播放器的壳”，而是把内容入口拆
 
 #### 各界面配图与视觉对应
 
-<p align="center">
-  <img src="windows/Beans.Windows.Rebuild/Assets/Home/Anime/anime-hero-wide-v2.png" width="32%" alt="放送首页场景素材">
-  <img src="windows/Beans.Windows.Rebuild/Assets/Home/Anime/anime-hero-wide-v3.png" width="32%" alt="番剧索引场景素材">
-  <img src="windows/Beans.Windows.Rebuild/Assets/Home/Anime/fantasy-forest.png" width="32%" alt="歌词页氛围背景素材">
-</p>
+下面按界面列出对应的项目配图。除播放器部分标注为真实运行截图外，其余图片是该界面实际使用的 Hero、海报、背景或卡片素材，不把静态素材伪装成运行截图。
 
-- 放送首页使用宽幅 Hero 与“历史上的今天 / 今日主题曲”内容卡，重点是快速进入一部作品。
-- 番剧索引、系列版本和搜索页复用统一作品卡片，但分别强调筛选、季度关系和主题曲匹配结果。
-- 作品详情页使用海报 + 背景图 + 主题曲表格的双栏布局；深色详情主题用于强化作品资料和播放操作。
-- 收藏页保持轻量卡片布局，歌词页切换为深色沉浸舞台；添加歌单对话框则使用浅色玻璃弹层，不打断当前播放。
-- 下方两张是当前 Windows 主线真实运行截图，展示沉浸式播放器的两套季节场景：
+##### Anime Shell 外壳
+
+![Anime Shell 外壳场景配图](windows/Beans.Windows.Rebuild/Assets/Home/Anime/anime-hero-ultrawide-v1.png)
+
+顶部三段式导航和底部主题曲播放器都覆盖在这套动漫 Shell 之上；点击封面可进入独立沉浸式播放器。
+
+##### 放送首页
+
+![放送首页 Hero 配图](windows/Beans.Windows.Rebuild/Assets/Home/Anime/anime-hero-wide-v2.png)
+
+放送首页使用宽幅 Hero、题材入口、历史上的今天和今日主题曲卡片，重点是快速进入一部作品。
+
+##### 番剧索引
+
+![番剧索引场景配图](windows/Beans.Windows.Rebuild/Assets/Home/Anime/anime-hero-wide-v3.png)
+
+索引页的作品卡使用同一套动漫视觉，但把重点放在年份、题材、排序、搜索和加载更多。
+
+##### 系列版本页
+
+![系列版本页作品配图](windows/Beans.Windows.Rebuild/Assets/Home/Anime/school-youth.png)
+
+系列页用作品卡呈现季度、续集、剧场版和其他关联版本，选择卡片后进入对应作品详情。
+
+##### 作品详情页
+
+![作品详情页海岸配图](windows/Beans.Windows.Rebuild/Assets/Home/Anime/anime-hero-coast.png)
+
+详情页以大海报、背景图和主题曲列表为主，右侧资料栏承载年份、类型、简介、外部链接和“继续探索”。
+
+##### 动漫搜索页
+
+![动漫搜索页城市配图](windows/Beans.Windows.Rebuild/Assets/Home/Anime/future-city.png)
+
+搜索页把匹配番剧和相关主题曲分成两块，输入中文名、日文名或罗马音后，结果会继续进行系列归并与平台曲目匹配。
+
+##### 我的收藏页
+
+![我的收藏页森林配图](windows/Beans.Windows.Rebuild/Assets/Home/Anime/fantasy-forest.png)
+
+收藏页同时显示收藏番剧卡片和收藏主题曲列表，支持统一关键词过滤、取消收藏和返回作品详情。
+
+##### 动漫歌词页
+
+![动漫歌词页氛围配图](windows/Beans.Windows.Rebuild/Assets/Player/Backgrounds/lyrics-hero-v2.png)
+
+歌词页切换为深色沉浸舞台，显示作品海报、当前行高亮、翻译歌词和播放进度；歌词设置可以单独调节字号、行距、翻译和减少动效。
+
+##### 添加到 Beans 歌单对话框
+
+![添加到 Beans 歌单对话框背景配图](windows/Beans.Windows.Rebuild/Assets/Home/Anime/fresh-headphones.png)
+
+对话框使用浅色玻璃风格，提供主题曲勾选、Beans 歌单搜索、多选目标歌单和新建歌单；重复歌曲会自动跳过。
+
+##### 沉浸式 Anime Player
+
+下面两张是当前 Windows 主线的真实运行截图，展示沉浸式播放器的两套季节场景：
 
 <p align="center">
   <img src="docs/screenshots/windows-anime-summer.png" width="49%" alt="沉浸式 Anime Player 夏日界面">
