@@ -12,6 +12,9 @@ public sealed partial class HomePage : UserControl
 {
     private readonly INavigationService _navigation;
     private bool _isLoaded;
+    private readonly DispatcherTimer _heroTimer = new() { Interval = TimeSpan.FromSeconds(7) };
+    private bool _heroHovered;
+    private bool _heroPaused;
     public HomeViewModel ViewModel { get; }
     public IPlaybackService Player { get; }
 
@@ -23,7 +26,15 @@ public sealed partial class HomePage : UserControl
         InitializeComponent();
 
         foreach (var card in PlaylistCards()) card.PlayRequested += Playlist_PlayRequested;
-        ViewModel.StateChanged += ViewModel_StateChanged;
+        _heroTimer.Tick += (_, _) =>
+        {
+            if (!_isLoaded || _heroPaused || _heroHovered || ViewModel.IsLoading || ViewModel.HeroSlideCount < 2) return;
+            if (!new global::Windows.UI.ViewManagement.UISettings().AnimationsEnabled) return;
+            var focus = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
+            for (var node = focus; node is not null; node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node))
+                if (ReferenceEquals(node, HeroPanel)) return;
+            ViewModel.ShowNextHero();
+        };
         Loaded += HomePage_Loaded;
         Unloaded += HomePage_Unloaded;
         ApplyContentState();
@@ -40,15 +51,18 @@ public sealed partial class HomePage : UserControl
     {
         if (_isLoaded) return;
         _isLoaded = true;
+        ViewModel.StateChanged += ViewModel_StateChanged;
         try { await ViewModel.InitializeAsync(); }
         catch (OperationCanceledException) { }
         catch (Exception) { PageStatusText.Text = "首页暂时无法加载，请稍后重试"; }
         ApplyContentState();
+        if (_isLoaded) _heroTimer.Start();
     }
 
     private void HomePage_Unloaded(object sender, RoutedEventArgs e)
     {
         _isLoaded = false;
+        _heroTimer.Stop();
         ViewModel.StateChanged -= ViewModel_StateChanged;
     }
 
@@ -56,12 +70,56 @@ public sealed partial class HomePage : UserControl
 
     private void ApplyContentState()
     {
+        ApplyHeroIndicators();
         ApplyPlaylistCards();
         HeroActionButton.IsEnabled = ViewModel.HasHeroTarget && !ViewModel.IsLoading;
+        NextPlaylistsButton.IsEnabled = ViewModel.HasPlaylists && !ViewModel.IsLoading;
         PlaylistCardsPanel.Visibility = ViewModel.HasPlaylists ? Visibility.Visible : Visibility.Collapsed;
         RecentTracksList.Visibility = ViewModel.HasTracks ? Visibility.Visible : Visibility.Collapsed;
         TrackEmptyText.Visibility = ViewModel.HasTracks ? Visibility.Collapsed : Visibility.Visible;
         RecommendationList.Visibility = ViewModel.HasRecommendations ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ApplyHeroIndicators()
+    {
+        HeroControls.Visibility = ViewModel.HeroSlideCount > 1 ? Visibility.Visible : Visibility.Collapsed;
+        if (HeroIndicators.Children.Count != ViewModel.HeroSlideCount)
+        {
+            HeroIndicators.Children.Clear();
+            for (var index = 0; index < ViewModel.HeroSlideCount; index++)
+            {
+                var button = new Button
+                {
+                    Tag = index, Width = 28, Height = 32, MinWidth = 0, Padding = new Thickness(6),
+                    Style = (Style)Application.Current.Resources["GhostButtonStyle"],
+                    Content = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 8, Height = 8 }
+                };
+                button.Click += (_, _) =>
+                {
+                    ViewModel.ShowHeroSlide((int)button.Tag);
+                    _heroTimer.Stop();
+                    if (_isLoaded) _heroTimer.Start();
+                };
+                HeroIndicators.Children.Add(button);
+            }
+        }
+        for (var index = 0; index < HeroIndicators.Children.Count; index++)
+        {
+            var button = (Button)HeroIndicators.Children[index];
+            button.IsEnabled = !ViewModel.IsLoading;
+            var selected = index == ViewModel.HeroSlideIndex;
+            ((Microsoft.UI.Xaml.Shapes.Ellipse)button.Content).Fill =
+                (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[selected ? "Primary400Brush" : "TextSecondaryBrush"];
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"第 {index + 1} 张推荐{(selected ? "，当前显示" : "")}");
+        }
+    }
+
+    private void Hero_PointerEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e) => _heroHovered = true;
+    private void Hero_PointerExited(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e) => _heroHovered = false;
+    private void HeroRotation_Click(object sender, RoutedEventArgs e)
+    {
+        _heroPaused = !_heroPaused;
+        HeroRotationButton.Content = _heroPaused ? "继续轮播" : "暂停轮播";
     }
 
     private void ApplyPlaylistCards()
@@ -100,7 +158,7 @@ public sealed partial class HomePage : UserControl
 
     private void HeroAction_Click(object sender, RoutedEventArgs e)
     {
-        if (ViewModel.HeroTarget is { } target) _navigation.Navigate(target.Route, target.Parameter);
+        if (ViewModel.HeroTarget is { } target) _navigation.Navigate("anime", target.Parameter.NativeId);
     }
 
     private async void Refresh_Click(object sender, RoutedEventArgs e)
@@ -117,6 +175,7 @@ public sealed partial class HomePage : UserControl
     private void Repeat_Click(object sender, RoutedEventArgs e) => Player.CycleRepeatMode();
     private void Favorite_Click(object sender, RoutedEventArgs e) => Player.ToggleFavorite();
     private void ViewMorePlaylists_Click(object sender, RoutedEventArgs e) => _navigation.Navigate("playlists");
+    private void NextPlaylists_Click(object sender, RoutedEventArgs e) => ViewModel.ShowNextPlaylists();
     private void ViewMoreTracks_Click(object sender, RoutedEventArgs e) => _navigation.Navigate("library");
     private void ViewLibrary_Click(object sender, RoutedEventArgs e) => _navigation.Navigate("library");
 

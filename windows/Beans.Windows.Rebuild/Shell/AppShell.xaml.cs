@@ -32,10 +32,15 @@ using Beans.Windows.Rebuild.Services.PlatformLibrary;
 using Beans.Windows.Rebuild.Services.BeansAccount;
 using Beans.Windows.Rebuild.Services.BeansPlaylists;
 using Beans.Windows.Rebuild.Services.Platforms;
+using Beans.Windows.Rebuild.Services.Search;
 using Beans.Windows.Rebuild.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Windowing;
+using Beans.Windows.Rebuild.Pages.Anime;
+using Beans.Windows.Rebuild.Services.Anime;
 
 namespace Beans.Windows.Rebuild.Shell;
 
@@ -49,6 +54,9 @@ public sealed partial class AppShell : UserControl
     private readonly Window _ownerWindow;
     private readonly IOnlineMusicDetailService _details;
     private readonly IUserLibraryService _userLibrary;
+    private string? _activeNavigationKey;
+    private Storyboard? _activePageTransition;
+    private bool _navigationBusy;
     public UIElement TitleBarDragRegion => TopBarControl.DragRegion;
 
     public AppShell(IServiceProvider services, Window ownerWindow)
@@ -68,7 +76,7 @@ public sealed partial class AppShell : UserControl
         _bottomPlayer.RouteRequested += (_, route) => _navigation.Navigate(route);
         PlayerHost.Content = _bottomPlayer;
 
-        Navigate(new NavigationRequest("home"));
+        Navigate(new NavigationRequest("discover"));
         Loaded += (_, _) => ApplyResponsiveState(ActualWidth);
         SizeChanged += (_, args) => ApplyResponsiveState(args.NewSize.Width);
     }
@@ -86,8 +94,13 @@ public sealed partial class AppShell : UserControl
     }
     private void Navigation_NavigationRequested(object? sender, NavigationRequest request) => Navigate(request);
 
-    private void Navigate(NavigationRequest request)
+    private async void Navigate(NavigationRequest request)
     {
+        if (_navigationBusy) return;
+        var leavingAnime = _activeNavigationKey?.StartsWith("anime|", StringComparison.Ordinal) == true && request.Route != "anime";
+        var navigationKey = $"{request.Route}|{FormatRouteDetail(request.Parameter)}";
+        if (request.Route != "search" && string.Equals(_activeNavigationKey, navigationKey, StringComparison.Ordinal)) return;
+        _activeNavigationKey = navigationKey;
         if (request.Route != "search") _searchViewModel.LeavePage();
         if (request.Route == "search" && request.Parameter is string query)
         {
@@ -101,7 +114,19 @@ public sealed partial class AppShell : UserControl
             {
             "home" => new HomePage(_services.GetRequiredService<HomeViewModel>(), _player, _navigation),
             "discover" => new DiscoverPage(_services.GetRequiredService<DiscoverViewModel>(), _navigation),
-            "search" => new SearchPage(_searchViewModel, _player, _navigation, request.Parameter as string),
+            "anime" => new AnimeShell(
+                _services.GetRequiredService<IAnimeCatalogService>(),
+                _services.GetRequiredService<IAnimeSearchService>(),
+                _services.GetRequiredService<IAnimeSongMatcher>(),
+                _services.GetRequiredService<IAnimeExternalLinkService>(),
+                _services.GetRequiredService<IBeansPlaylistService>(),
+                _player, _services.GetRequiredService<ILyricsService>(), _services.GetRequiredService<AnimeSession>(), _navigation, _services.GetRequiredService<AnimeThemePrefetch>(), request.Parameter as string),
+            "search" => new SearchPage(
+                _searchViewModel,
+                _player,
+                _navigation,
+                _services.GetRequiredService<IBeansPlaylistService>(),
+                request.Parameter as string),
             "local" => new LocalMusicPage(
                 _services.GetRequiredService<ILocalMusicCatalog>(),
                 _services.GetRequiredService<ILocalPlaybackSourceFactory>(),
@@ -136,7 +161,7 @@ public sealed partial class AppShell : UserControl
             "downloads" => new DownloadsPage(_services.GetRequiredService<IDownloadManager>(), _ownerWindow),
             "queue" => new QueuePage(_player),
             "lyrics" => new LyricsPage(_player, _services.GetRequiredService<ILyricsService>()),
-            "player" => new PlayerPage(_player, _navigation, _services.GetRequiredService<ILyricsService>()),
+            "player" => CreatePlayerPage(request.Parameter),
             "universe" => new MusicUniversePage(_services.GetRequiredService<IMusicUniverseService>()),
             "notifications" => new NotificationsPage(),
                 _ => new PlaceholderPage(RouteTitle(request.Route), FormatRouteDetail(request.Parameter), _navigation)
@@ -146,15 +171,103 @@ public sealed partial class AppShell : UserControl
         {
             page = new PlaceholderPage("页面暂时无法打开", "页面初始化失败，请返回后重试。", _navigation);
         }
+        void ShowPage()
+        {
+        TopBarControl.SetPageAccessory(page is DiscoverPage discovery ? discovery.DetachPlatformPicker() : null);
         var fullScreenPlayer = request.Route == "player";
-        PageHost.Content = fullScreenPlayer ? null : page;
+        var animeMode = request.Route == "anime";
+        if (!fullScreenPlayer) SetPlayerFullscreen(false);
+        _ownerWindow.SetTitleBar(page is AnimeShell animeShell ? animeShell.TitleBarDragRegion : TopBarControl.DragRegion);
+        _ownerWindow.AppWindow.TitleBar.ButtonForegroundColor = animeMode ? Microsoft.UI.ColorHelper.FromArgb(255,32,57,88) : Microsoft.UI.Colors.White;
+        if(page is AnimeShell captionShell)
+        {
+            void UpdateCaption(bool dark) => _ownerWindow.AppWindow.TitleBar.ButtonForegroundColor = dark ? Microsoft.UI.Colors.White : Microsoft.UI.ColorHelper.FromArgb(255,32,57,88);
+            captionShell.CaptionThemeChanged += UpdateCaption;
+            captionShell.Unloaded += (_,_) => captionShell.CaptionThemeChanged -= UpdateCaption;
+            UpdateCaption(captionShell.IsDark);
+        }
+        var pageOwnsHeading = request.Route is "search" or "playlist" or "settings" or "accounts";
+        TopBarControl.SetSearchVisible(!pageOwnsHeading);
+        TopBarRow.Height = new GridLength(pageOwnsHeading ? 32 : 86);
+        if (!animeMode) PageHost.Content = fullScreenPlayer ? null : page;
+        PageHost.Visibility = animeMode ? Visibility.Collapsed : Visibility.Visible;
         FullScreenPlayerHost.Content = fullScreenPlayer ? page : null;
         FullScreenPlayerHost.Visibility = fullScreenPlayer ? Visibility.Visible : Visibility.Collapsed;
-        SidebarControl.Visibility = fullScreenPlayer ? Visibility.Collapsed : Visibility.Visible;
-        TopBarControl.Visibility = fullScreenPlayer ? Visibility.Collapsed : Visibility.Visible;
-        PlayerRow.Height = fullScreenPlayer ? new GridLength(0) : new GridLength(96);
-        PlayerHost.Visibility = fullScreenPlayer ? Visibility.Collapsed : Visibility.Visible;
+        AnimeHost.Content = animeMode ? page : null;
+        AnimeHost.Visibility = animeMode ? Visibility.Visible : Visibility.Collapsed;
+        SidebarControl.Visibility = fullScreenPlayer || animeMode ? Visibility.Collapsed : Visibility.Visible;
+        TopBarControl.Visibility = fullScreenPlayer || animeMode ? Visibility.Collapsed : Visibility.Visible;
+        PlayerRow.Height = fullScreenPlayer || animeMode ? new GridLength(0) : new GridLength(96);
+        PlayerHost.Visibility = fullScreenPlayer || animeMode ? Visibility.Collapsed : Visibility.Visible;
+        if (request.Route != "anime" && !leavingAnime)
+            AnimatePageIn(fullScreenPlayer ? FullScreenPlayerHost : PageHost);
+        SidebarControl.SelectRoute(request.Route);
         ApplyResponsiveState(ActualWidth);
+        }
+        if (request.Route == "anime" || leavingAnime)
+        {
+            _navigationBusy = true;
+            try
+            {
+                await AnimePortal.TransitionAsync(_services.GetRequiredService<AnimeSession>().State.ReduceMotion,
+                    leavingAnime, ShowPage, page is AnimeShell anime ? anime.TransitionContent : page as FrameworkElement);
+            }
+            finally { _navigationBusy = false; }
+        }
+        else ShowPage();
+    }
+
+    private PlayerPage CreatePlayerPage(object? parameter = null)
+    {
+        var page = new PlayerPage(
+            _player,
+            _navigation,
+            _services.GetRequiredService<ILyricsService>(),
+            _services.GetRequiredService<IPlatformPreferenceStore>(),
+            string.Equals(parameter as string, "anime", StringComparison.OrdinalIgnoreCase),
+            _services.GetRequiredService<AnimeSession>());
+        page.AttachAnimeWindow(_ownerWindow);
+        page.FullscreenRequested += PlayerPage_FullscreenRequested;
+        page.Unloaded += (_, _) => page.FullscreenRequested -= PlayerPage_FullscreenRequested;
+        return page;
+    }
+
+    private void PlayerPage_FullscreenRequested(object? sender, bool fullscreen)
+    {
+        SetPlayerFullscreen(fullscreen);
+        if (sender is PlayerPage page)
+            page.SetFullscreenState(_ownerWindow.AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen);
+    }
+
+    private void SetPlayerFullscreen(bool fullscreen)
+    {
+        var kind = fullscreen ? AppWindowPresenterKind.FullScreen : AppWindowPresenterKind.Overlapped;
+        if (_ownerWindow.AppWindow.Presenter.Kind != kind)
+            _ownerWindow.AppWindow.SetPresenter(kind);
+    }
+
+    private void AnimatePageIn(UIElement target)
+    {
+        _activePageTransition?.Stop();
+        target.Opacity = 0.88;
+        var storyboard = new Storyboard();
+        var opacity = new DoubleAnimation
+        {
+            From = 0.88,
+            To = 1,
+            Duration = new Duration(TimeSpan.FromMilliseconds(120)),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        Storyboard.SetTarget(opacity, target);
+        Storyboard.SetTargetProperty(opacity, "Opacity");
+        storyboard.Children.Add(opacity);
+        storyboard.Completed += (_, _) =>
+        {
+            target.Opacity = 1;
+            if (ReferenceEquals(_activePageTransition, storyboard)) _activePageTransition = null;
+        };
+        _activePageTransition = storyboard;
+        storyboard.Begin();
     }
 
     private void ApplyResponsiveState(double width)
@@ -179,6 +292,7 @@ public sealed partial class AppShell : UserControl
     private static string RouteTitle(string route) => route switch
     {
         "discover" => "发现",
+        "anime" => "二次元音乐",
         "search" => "搜索",
         "library" => "我的音乐",
         "playlists" => "创建的歌单",

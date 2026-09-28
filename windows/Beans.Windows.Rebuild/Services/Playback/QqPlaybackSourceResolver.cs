@@ -244,7 +244,7 @@ public sealed class QqPlaybackSourceResolver : IPlaybackSourceResolver
         var message = restriction switch
         {
             PlaybackRestriction.RequiresAuthorization => "QQ 音乐登录已失效",
-            PlaybackRestriction.SubscriptionRequired => "当前歌曲需要有效的 QQ 音乐会员权益",
+            PlaybackRestriction.SubscriptionRequired => "当前歌曲需要有效的 QQ 音乐会员权益（Beans Music 不共享 QQ 会员）",
             PlaybackRestriction.RegionRestricted => "当前歌曲在所在地区不可播放",
             _ => "QQ 音乐当前没有可用的官方播放源"
         };

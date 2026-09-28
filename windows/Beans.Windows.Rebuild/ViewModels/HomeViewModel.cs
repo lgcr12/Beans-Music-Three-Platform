@@ -19,6 +19,11 @@ public sealed class HomeViewModel : INotifyPropertyChanged, IDisposable
     private CancellationTokenSource? _loadCancellation;
     private bool _isInitialized;
     private bool _isLoading;
+    private HomePlaylist[] _playlistCandidates = [];
+    private HeroSlide[] _heroSlides = [];
+    public int HeroSlideCount => _heroSlides.Length;
+    public int HeroSlideIndex { get; private set; }
+    private readonly HashSet<(PlatformId, string)> _seenPlaylists = [];
     private string _heroTitle = "首页正在准备";
     private string _heroSubtitle = "正在读取公开推荐与本机音乐库";
     private string _heroImageUri = DefaultArtwork;
@@ -92,8 +97,8 @@ public sealed class HomeViewModel : INotifyPropertyChanged, IDisposable
             var libraryResult = await libraryTask;
             var localResult = await localTask;
 
-            ApplyHero(liveContents);
             ApplyPlaylists(liveContents);
+            ApplyHero(liveContents);
             ApplyTracks(liveContents, libraryResult.Snapshot, localResult.Tracks);
             ApplyRecommendations(liveContents);
             ApplyLibrarySummary(libraryResult);
@@ -153,10 +158,22 @@ public sealed class HomeViewModel : INotifyPropertyChanged, IDisposable
 
     private void ApplyHero(IReadOnlyList<PlatformDiscoveryContent> contents)
     {
-        var content = contents.FirstOrDefault(item =>
-            !string.IsNullOrWhiteSpace(item.HeroContent.Title) &&
-            !string.IsNullOrWhiteSpace(item.HeroContent.ImageUri));
-        if (content is null)
+        var slides = new List<HeroSlide>();
+        foreach (var content in contents)
+        {
+            if (string.IsNullOrWhiteSpace(content.HeroContent.Title) ||
+                string.IsNullOrWhiteSpace(content.HeroContent.ImageUri)) continue;
+            var hero = content.HeroContent;
+            slides.Add(new(hero.Title, hero.Subtitle, NormalizeArtwork(hero.ImageUri), "进入二次元专区",
+                new("anime", new PlatformRouteParameter("anime", hero.Title, hero.Title))));
+        }
+        slides.AddRange(_playlistCandidates.Select(item => new HeroSlide(item.Title,
+            $"{item.SourcePlatform.ToDisplayName()}公开推荐歌单", item.ImageUri, "查看歌单",
+            new("anime", new PlatformRouteParameter("anime", item.Title, item.Title)))));
+        _heroSlides = slides.DistinctBy(item => (item.Target.Route, item.Target.Parameter.PlatformId,
+            item.Target.Parameter.NativeId)).Take(4).ToArray();
+        HeroSlideIndex = 0;
+        if (_heroSlides.Length == 0)
         {
             HeroTitle = "暂无公开推荐";
             HeroSubtitle = "网络恢复后可查看 QQ 音乐与网易云音乐的公开内容";
@@ -167,14 +184,26 @@ public sealed class HomeViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        var hero = content.HeroContent;
-        HeroTitle = hero.Title;
-        HeroSubtitle = hero.Subtitle;
-        HeroImageUri = NormalizeArtwork(hero.ImageUri);
-        HeroActionLabel = string.IsNullOrWhiteSpace(hero.ActionLabel) ? "查看内容" : hero.ActionLabel;
-        HeroTarget = ResolveHeroTarget(content);
-        OnPropertyChanged(nameof(HasHeroTarget));
+        ShowHeroSlide(0);
     }
+
+    public void ShowNextHero() => ShowHeroSlide((HeroSlideIndex + 1) % Math.Max(1, HeroSlideCount));
+
+    public void ShowHeroSlide(int index)
+    {
+        if (index < 0 || index >= _heroSlides.Length) return;
+        var slide = _heroSlides[index];
+        HeroSlideIndex = index;
+        HeroTarget = slide.Target;
+        HeroTitle = slide.Title;
+        HeroSubtitle = slide.Subtitle;
+        HeroImageUri = slide.ImageUri;
+        HeroActionLabel = slide.ActionLabel;
+        OnPropertyChanged(nameof(HasHeroTarget));
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private sealed record HeroSlide(string Title, string Subtitle, string ImageUri, string ActionLabel, HomeRouteTarget Target);
 
     private static HomeRouteTarget? ResolveHeroTarget(PlatformDiscoveryContent content)
     {
@@ -185,39 +214,71 @@ public sealed class HomeViewModel : INotifyPropertyChanged, IDisposable
             content.PlaylistSquare.Any(item => item.Identity.NativeId == nativeId))
             return new("playlist", new PlatformRouteParameter(platform.ToStableId(), nativeId, title));
         if (content.Rankings.Any(item => item.Id == nativeId))
-            return new("ranking", new PlatformRouteParameter(platform.ToStableId(), nativeId, title));
+            return new("ranking-detail", new PlatformRouteParameter(platform.ToStableId(), nativeId, title));
         return null;
     }
 
     private void ApplyPlaylists(IReadOnlyList<PlatformDiscoveryContent> contents)
     {
-        Playlists.Clear();
+        var candidates = new List<HomePlaylist>();
+        _seenPlaylists.Clear();
         var byPlatform = contents.Select(content => content.RecommendedPlaylists
                 .Concat(content.PlaylistSquare)
                 .Where(item => !string.IsNullOrWhiteSpace(item.Identity.NativeId) && !string.IsNullOrWhiteSpace(item.Title))
-                .DistinctBy(item => item.Identity.NativeId)
-                .Take(4)
+                .DistinctBy(item => (item.Identity.Platform, item.Identity.NativeId))
                 .ToArray())
             .Where(items => items.Length > 0)
             .ToArray();
-        for (var index = 0; Playlists.Count < 4 && byPlatform.Any(items => index < items.Length); index++)
+        for (var index = 0; byPlatform.Any(items => index < items.Length); index++)
         {
             foreach (var items in byPlatform.Where(items => index < items.Length))
             {
                 var item = items[index];
-                Playlists.Add(new HomePlaylist(
+                candidates.Add(new HomePlaylist(
                     item.Identity.NativeId,
                     item.Title,
                     string.IsNullOrWhiteSpace(item.Creator) ? item.Identity.Platform.ToDisplayName() : item.Creator,
                     NormalizeArtwork(item.CoverUri),
                     FormatPlayCount(item.PlayCount),
                     item.Identity.Platform));
-                if (Playlists.Count == 4) break;
             }
         }
-        PlaylistStatusText = Playlists.Count > 0
-            ? $"来自公开接口 · {Playlists.Count} 个歌单"
-            : "QQ 音乐与网易云音乐的公开推荐暂时不可用";
+        _playlistCandidates = candidates.DistinctBy(item => (item.SourcePlatform, item.Id)).ToArray();
+        Playlists.Clear();
+        ShowNextPlaylists();
+    }
+
+    public void ShowNextPlaylists()
+    {
+        if (IsLoading && Playlists.Count > 0) return;
+        var current = Playlists.Select(item => (item.SourcePlatform, item.Id)).ToHashSet();
+        var alternatives = _playlistCandidates.Count(item => !current.Contains((item.SourcePlatform, item.Id)));
+        if (alternatives == 0 && Playlists.Count > 0)
+        {
+            PlaylistStatusText = "暂无更多候选歌单，可点击首页“刷新”获取最新内容";
+            return;
+        }
+
+        if (_playlistCandidates.All(item => _seenPlaylists.Contains((item.SourcePlatform, item.Id))))
+        {
+            _seenPlaylists.Clear();
+            _seenPlaylists.UnionWith(current);
+        }
+        var next = _playlistCandidates
+            .OrderBy(item => current.Contains((item.SourcePlatform, item.Id)))
+            .ThenBy(item => _seenPlaylists.Contains((item.SourcePlatform, item.Id)))
+            .Take(4).ToArray();
+        Playlists.Clear();
+        foreach (var item in next)
+        {
+            Playlists.Add(item);
+            _seenPlaylists.Add((item.SourcePlatform, item.Id));
+        }
+        PlaylistStatusText = next.Length == 0
+            ? "QQ 音乐与网易云音乐的公开推荐暂时不可用"
+            : current.Count > 0 && alternatives < 4
+                ? $"已换入 {alternatives} 个歌单 · 候选不足，保留部分当前内容"
+                : $"来自公开接口 · {next.Length} 个歌单 · 可换一批";
         NotifyCollectionsChanged();
     }
 

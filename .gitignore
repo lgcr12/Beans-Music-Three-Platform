@@ -45,6 +45,11 @@ server/redis-data/
 dist/
 ci-builds/
 ci-logs/
+output/
+**/artifacts/
+**/.packages/
+**/NVIDIA Corporation/
+.tmp-playback-check/
 
 # Editor and local user settings
 .idea/

@@ -81,7 +81,24 @@ public sealed record PlatformPreferencePayload(
     bool? LyricTranslation = null,
     string? LyricAlignment = null);
 public sealed record PlatformMirrorPayload(string Platform, IReadOnlyList<MirrorPlaylist> Playlists, DateTimeOffset UpdatedAt);
-public sealed record MirrorPlaylist(long Id, string Name, Uri? CoverUrl, int TrackCount, string CreatorName, string Source);
+public sealed record MirrorPlaylist(
+    long Id,
+    string Name,
+    Uri? CoverUrl,
+    int TrackCount,
+    string CreatorName,
+    string Source,
+    bool TrackCountKnown = false,
+    string? NativeKind = null);
+public sealed record PlatformPlaylistTrack(
+    string Id,
+    string Title,
+    string Artist,
+    string Album,
+    Uri? CoverUrl,
+    string Source,
+    string? MediaId = null);
+public sealed record PlatformPlaybackSource(Uri Uri, string Quality);
 
 public sealed record PlatformCredentialBundle(
     Dictionary<string, string>? Qq,

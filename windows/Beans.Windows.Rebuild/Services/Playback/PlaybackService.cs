@@ -12,6 +12,82 @@ using Windows.Storage.Streams;
 
 namespace Beans.Windows.Rebuild.Services.Playback;
 
+internal readonly record struct QualitySwitchResume(TimeSpan Position, bool ShouldPlay)
+{
+    public static QualitySwitchResume Capture(TimeSpan position, bool isPlaying) =>
+        new(TimeSpan.FromSeconds(Math.Max(0, position.TotalSeconds)), isPlaying);
+
+    public TimeSpan ClampTo(TimeSpan duration) =>
+        TimeSpan.FromSeconds(Math.Clamp(Position.TotalSeconds, 0, Math.Max(0, duration.TotalSeconds)));
+}
+
+internal static class PlaybackQueuePolicy
+{
+    public static int IndexOf(IReadOnlyList<PlaybackItem> queue, PlaybackItem? item) =>
+        item is null ? -1 : IndexOf(queue, item.Id);
+
+    public static int IndexOf(IReadOnlyList<PlaybackItem> queue, string id)
+    {
+        for (var index = 0; index < queue.Count; index++)
+            if (string.Equals(queue[index].Id, id, StringComparison.OrdinalIgnoreCase)) return index;
+        return -1;
+    }
+
+    public static int? NextIndex(IReadOnlyList<PlaybackItem> queue, int currentIndex, bool repeatAll)
+    {
+        if (queue.Count == 0 || currentIndex < 0 || currentIndex >= queue.Count) return null;
+        if (currentIndex + 1 < queue.Count) return currentIndex + 1;
+        return repeatAll ? 0 : null;
+    }
+
+    public static void Replace(IList<PlaybackItem> queue, IEnumerable<PlaybackItem> items)
+    {
+        var replacement = items
+            .DistinctBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        queue.Clear();
+        foreach (var item in replacement) queue.Add(item);
+    }
+}
+
+internal sealed class PlaybackShuffleBag
+{
+    private readonly List<string> _remaining = [];
+
+    public int RemainingCount => _remaining.Count;
+
+    public void Reset(IEnumerable<PlaybackItem> queue, string? excludeId = null)
+    {
+        _remaining.Clear();
+        _remaining.AddRange(queue
+            .Where(item => !string.Equals(item.Id, excludeId, StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.Id)
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+    }
+
+    public string Take(IReadOnlyCollection<PlaybackItem> queue, string? currentId)
+    {
+        _remaining.RemoveAll(id =>
+            !queue.Any(item => string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase)) ||
+            string.Equals(id, currentId, StringComparison.OrdinalIgnoreCase));
+        if (_remaining.Count == 0) Reset(queue, currentId);
+        var index = Random.Shared.Next(_remaining.Count);
+        var id = _remaining[index];
+        _remaining.RemoveAt(index);
+        return id;
+    }
+
+    public void Add(string id, bool next = false)
+    {
+        Remove(id);
+        if (next) _remaining.Insert(0, id);
+        else _remaining.Add(id);
+    }
+
+    public void Remove(string id) => _remaining.RemoveAll(candidate => string.Equals(candidate, id, StringComparison.OrdinalIgnoreCase));
+    public void Clear() => _remaining.Clear();
+}
+
 public sealed class PlaybackService : IPlaybackService
 {
     private readonly MediaPlayer _mediaPlayer = new();
@@ -32,6 +108,14 @@ public sealed class PlaybackService : IPlaybackService
     private bool _hasRetriedCurrentSource;
     private int _sourceGeneration;
     private int _recordedHistoryGeneration = -1;
+    private TimeSpan? _pendingQualitySeek;
+    private bool _resumeAfterQualitySwitch;
+    private PlaybackItem? _qualityFallbackItem;
+    private int _qualityRequestGeneration;
+    private IMediaPlaybackSource? _activeMediaSource;
+    private readonly PlaybackShuffleBag _shuffleBag = new();
+    private readonly HashSet<string> _failedPlaybackIds = new(StringComparer.OrdinalIgnoreCase);
+    private int _queuePreparationGeneration;
     private PlaybackRepeatMode _repeatMode = PlaybackRepeatMode.Off;
 
     public PlaybackService(
@@ -70,6 +154,13 @@ public sealed class PlaybackService : IPlaybackService
     public bool IsShuffleEnabled { get => _isShuffleEnabled; private set => Set(ref _isShuffleEnabled, value); }
     public bool IsFavorite { get => _isFavorite; private set => Set(ref _isFavorite, value); }
     public PlaybackRepeatMode RepeatMode { get => _repeatMode; private set => Set(ref _repeatMode, value); }
+    public string ShuffleModeText => IsShuffleEnabled ? "随机" : "顺序";
+    public string RepeatModeText => RepeatMode switch
+    {
+        PlaybackRepeatMode.All => "列表循环",
+        PlaybackRepeatMode.One => "单曲循环",
+        _ => "不循环"
+    };
 
     public void AttachDispatcherQueue(DispatcherQueue dispatcherQueue)
     {
@@ -83,20 +174,30 @@ public sealed class PlaybackService : IPlaybackService
 
     public Task PlayAsync(PlaybackItem item, bool replaceQueue = false)
     {
+        _failedPlaybackIds.Remove(item.Id);
+        ++_qualityRequestGeneration;
+        _pendingQualitySeek = null;
+        _resumeAfterQualitySwitch = false;
+        _qualityFallbackItem = null;
         StatusText = "正在打开音频…";
+        if (replaceQueue)
+        {
+            PlaybackQueuePolicy.Replace(Queue, [item]);
+            _shuffleBag.Reset(Queue, IsShuffleEnabled ? item.Id : null);
+        }
         if (Current?.Id == item.Id)
         {
             _hasRetriedCurrentSource = false;
             if (PositionSeconds >= Math.Max(0, DurationSeconds - 0.25)) Seek(TimeSpan.Zero);
             _mediaPlayer.Play();
-            StatusText = "正在播放";
+            StatusText = "正在恢复播放…";
             _logger.LogInformation("Playback resumed for track {TrackId} from {Source}", item.Id, item.SourceLabel);
             return Task.CompletedTask;
         }
 
-        Prepare(item, replaceQueue);
+        Prepare(item, replaceQueue: false);
         _mediaPlayer.Play();
-        StatusText = "正在播放";
+        StatusText = "正在打开音频…";
         _logger.LogInformation("Playback started for track {TrackId} from {Source}", item.Id, item.SourceLabel);
         return Task.CompletedTask;
     }
@@ -112,6 +213,74 @@ public sealed class PlaybackService : IPlaybackService
         return prepared;
     }
 
+    public async Task<PlaybackOperationResult> PlaySearchResultsAsync(
+        IReadOnlyList<SearchResultItem> items,
+        CancellationToken cancellationToken = default)
+    {
+        if (items is null || items.Count == 0)
+            return PlaybackOperationResult.Failure(PlaybackRestriction.NotImplemented, "当前歌单没有可播放歌曲");
+
+        var requestGeneration = Interlocked.Increment(ref _queuePreparationGeneration);
+        var orderedItems = items
+            .DistinctBy(item => item.StableId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var prepared = new List<PlaybackItem>(orderedItems.Length);
+        PlaybackOperationResult? firstFailure = null;
+        var skippedBeforeFirst = 0;
+        var firstResolvedIndex = -1;
+        for (var index = 0; index < orderedItems.Length; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = await ResolveSearchResultAsync(orderedItems[index], cancellationToken);
+            if (result.IsSuccess && result.Item is not null)
+            {
+                prepared.Add(result.Item);
+                firstResolvedIndex = index;
+                break;
+            }
+            firstFailure ??= result;
+            skippedBeforeFirst++;
+        }
+
+        if (prepared.Count == 0)
+            return firstFailure ?? PlaybackOperationResult.Failure(PlaybackRestriction.NotImplemented, "当前歌单没有可播放歌曲");
+
+        PlaybackQueuePolicy.Replace(Queue, prepared);
+        _shuffleBag.Reset(Queue, IsShuffleEnabled ? prepared[0].Id : null);
+        await PlayAsync(prepared[0]);
+        StatusText = "正在播放，后台准备歌单队列…";
+
+        // Do not make the first audible frame wait for every platform source.
+        // Resolve the remaining tracks concurrently with a small bound so a
+        // large playlist does not flood a provider or the local connection.
+        using var limiter = new SemaphoreSlim(6, 6);
+        var remaining = orderedItems
+            .Where((_, index) => index != firstResolvedIndex)
+            .Select(async item =>
+            {
+                await limiter.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try { return await ResolveSearchResultAsync(item, cancellationToken).ConfigureAwait(false); }
+                finally { limiter.Release(); }
+            })
+            .ToArray();
+        var remainingResults = await Task.WhenAll(remaining);
+        if (requestGeneration != _queuePreparationGeneration)
+            return new PlaybackOperationResult(true, prepared[0], PlaybackRestriction.None, "播放已开始，队列准备请求已更新");
+
+        var skipped = skippedBeforeFirst;
+        foreach (var result in remainingResults)
+        {
+            if (result.IsSuccess && result.Item is not null) AddToQueue(result.Item);
+            else skipped++;
+        }
+
+        var message = skipped == 0
+            ? "播放源已准备"
+            : $"播放源已准备，已跳过 {skipped} 首无法播放歌曲";
+        if (skipped > 0) StatusText = $"正在播放，已跳过 {skipped} 首无法播放歌曲";
+        return new PlaybackOperationResult(true, prepared[0], PlaybackRestriction.None, message);
+    }
+
     public async Task<PlaybackOperationResult> QueueSearchResultAsync(
         SearchResultItem item,
         bool playNext = false,
@@ -125,7 +294,15 @@ public sealed class PlaybackService : IPlaybackService
 
     public void Prepare(PlaybackItem item, bool replaceQueue = true)
     {
-        if (replaceQueue) Queue.Clear();
+        ++_qualityRequestGeneration;
+        _pendingQualitySeek = null;
+        _resumeAfterQualitySwitch = false;
+        _qualityFallbackItem = null;
+        if (replaceQueue)
+        {
+            Queue.Clear();
+            _shuffleBag.Clear();
+        }
         if (!Queue.Any(x => x.Id == item.Id)) Queue.Add(item);
 
         Current = item;
@@ -136,7 +313,7 @@ public sealed class PlaybackService : IPlaybackService
         DurationSeconds = Math.Max(1, item.Duration.TotalSeconds);
         RaiseCurrentProperties();
 
-        _mediaPlayer.Source = MediaSource.CreateFromUri(new Uri(item.SourceUri));
+        SetMediaSource(new Uri(item.SourceUri));
         UpdateSystemMediaControls(item);
         _ = RefreshFavoriteStateAsync(item, generation);
     }
@@ -160,7 +337,7 @@ public sealed class PlaybackService : IPlaybackService
             return;
         }
         if (PositionSeconds > 5) { Seek(TimeSpan.Zero); return; }
-        var index = Queue.IndexOf(Current);
+        var index = PlaybackQueuePolicy.IndexOf(Queue, Current);
         var previous = index <= 0 ? Queue[^1] : Queue[index - 1];
         _ = PlayAsync(previous);
     }
@@ -172,12 +349,16 @@ public sealed class PlaybackService : IPlaybackService
             StatusText = "队列为空，无法播放下一首";
             return;
         }
-        var index = Queue.IndexOf(Current);
+        var index = PlaybackQueuePolicy.IndexOf(Queue, Current);
+        if (index < 0)
+        {
+            StatusText = "当前歌曲不在播放队列中";
+            return;
+        }
         PlaybackItem next;
         if (IsShuffleEnabled && Queue.Count > 1)
         {
-            var candidates = Queue.Where(x => x.Id != Current.Id).ToArray();
-            next = candidates[Random.Shared.Next(candidates.Length)];
+            next = TakeShuffleNext();
         }
         else
         {
@@ -225,6 +406,8 @@ public sealed class PlaybackService : IPlaybackService
             return;
         }
 
+        var requestGeneration = ++_qualityRequestGeneration;
+        var sourceGeneration = _sourceGeneration;
         StatusText = $"正在切换到 {QualityDisplayLabel(requested)}…";
         try
         {
@@ -237,41 +420,54 @@ public sealed class PlaybackService : IPlaybackService
                 cancellationToken);
             if (!resolved.IsSuccess || resolved.Source is null)
             {
-                StatusText = resolved.SafeMessage;
+                if (requestGeneration == _qualityRequestGeneration && sourceGeneration == _sourceGeneration && Current?.Id == current.Id)
+                    StatusText = resolved.SafeMessage;
                 return;
             }
 
+            if (requestGeneration != _qualityRequestGeneration || sourceGeneration != _sourceGeneration || Current?.Id != current.Id)
+                return;
+            var resume = _pendingQualitySeek is { } pendingPosition
+                ? new QualitySwitchResume(pendingPosition, _resumeAfterQualitySwitch)
+                : QualitySwitchResume.Capture(
+                    _mediaPlayer.PlaybackSession.Position,
+                    _mediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing);
             var refreshed = current with
             {
                 SourceUri = resolved.Source.Uri.AbsoluteUri,
                 QualityLabel = QualityDisplayLabel(resolved.Source.Quality)
             };
-            var index = Queue.IndexOf(current);
+            var index = PlaybackQueuePolicy.IndexOf(Queue, current);
             if (index >= 0) Queue[index] = refreshed;
             Current = refreshed;
             RaiseCurrentProperties();
-            _mediaPlayer.Source = MediaSource.CreateFromUri(resolved.Source.Uri);
-            _mediaPlayer.Play();
-            StatusText = $"已切换到 {refreshed.QualityLabel}";
+            _pendingQualitySeek = resume.Position;
+            _resumeAfterQualitySwitch = resume.ShouldPlay;
+            _qualityFallbackItem ??= current;
+            SetMediaSource(resolved.Source.Uri);
+            StatusText = $"正在应用 {refreshed.QualityLabel}…";
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            StatusText = "音质切换已取消";
+            if (requestGeneration == _qualityRequestGeneration) StatusText = "音质切换已取消";
         }
         catch
         {
-            StatusText = "音质切换失败，请检查授权或网络";
+            if (requestGeneration == _qualityRequestGeneration) StatusText = "音质切换失败，请检查授权或网络";
         }
     }
 
     public void ToggleShuffle()
     {
         IsShuffleEnabled = !IsShuffleEnabled;
+        _shuffleBag.Reset(Queue, IsShuffleEnabled ? Current?.Id : null);
+        OnPropertyChanged(nameof(ShuffleModeText));
         StatusText = IsShuffleEnabled ? "随机播放已开启" : "随机播放已关闭";
     }
     public void CycleRepeatMode()
     {
         RepeatMode = RepeatMode switch { PlaybackRepeatMode.Off => PlaybackRepeatMode.All, PlaybackRepeatMode.All => PlaybackRepeatMode.One, _ => PlaybackRepeatMode.Off };
+        OnPropertyChanged(nameof(RepeatModeText));
         StatusText = RepeatMode switch
         {
             PlaybackRepeatMode.All => "列表循环已开启",
@@ -288,14 +484,20 @@ public sealed class PlaybackService : IPlaybackService
         IsFavorite = desired;
         _ = PersistFavoriteAsync(snapshot, desired, item.Id, generation);
     }
-    public void AddToQueue(PlaybackItem item) { if (!Queue.Any(x => x.Id == item.Id)) Queue.Add(item); }
+    public void AddToQueue(PlaybackItem item)
+    {
+        if (Queue.Any(x => x.Id == item.Id)) return;
+        Queue.Add(item);
+        if (IsShuffleEnabled && Current?.Id != item.Id) _shuffleBag.Add(item.Id);
+    }
     public void AddNextToQueue(PlaybackItem item)
     {
         if (Queue.Any(x => x.Id == item.Id)) return;
-        var index = Current is null ? 0 : Queue.IndexOf(Current) + 1;
+        var index = Current is null ? 0 : PlaybackQueuePolicy.IndexOf(Queue, Current) + 1;
         Queue.Insert(Math.Clamp(index, 0, Queue.Count), item);
+        if (IsShuffleEnabled && Current?.Id != item.Id) _shuffleBag.Add(item.Id, next: true);
     }
-    public void ClearQueue() { Queue.Clear(); Current = null; _hasRetriedCurrentSource = false; _mediaPlayer.Pause(); RaiseCurrentProperties(); }
+    public void ClearQueue() { Queue.Clear(); _shuffleBag.Clear(); _failedPlaybackIds.Clear(); Current = null; _hasRetriedCurrentSource = false; _mediaPlayer.Pause(); RaiseCurrentProperties(); }
 
     private async Task<PlaybackOperationResult> ResolveSearchResultAsync(SearchResultItem item, CancellationToken cancellationToken)
     {
@@ -339,12 +541,32 @@ public sealed class PlaybackService : IPlaybackService
 
     private void MediaPlayer_MediaOpened(MediaPlayer sender, object args) => Enqueue(() =>
     {
+        if (!ReferenceEquals(sender.Source, _activeMediaSource)) return;
         StatusText = "正在播放";
         var natural = sender.PlaybackSession.NaturalDuration.TotalSeconds;
         if (natural > 0 && !double.IsInfinity(natural)) DurationSeconds = natural;
-        RaiseTimelineProperties();
+        if (_pendingQualitySeek is { } resumePosition)
+        {
+            _pendingQualitySeek = null;
+            var duration = sender.PlaybackSession.NaturalDuration.TotalSeconds;
+            var upperBound = duration > 0 && double.IsFinite(duration) ? duration : Math.Max(0, DurationSeconds);
+            sender.PlaybackSession.Position = new QualitySwitchResume(resumePosition, _resumeAfterQualitySwitch)
+                .ClampTo(TimeSpan.FromSeconds(upperBound));
+            PositionSeconds = sender.PlaybackSession.Position.TotalSeconds;
+            RaiseTimelineProperties();
+            if (_resumeAfterQualitySwitch) sender.Play();
+            else sender.Pause();
+            _resumeAfterQualitySwitch = false;
+            _qualityFallbackItem = null;
+            StatusText = $"已切换到 {Current?.QualityLabel ?? "新音质"}";
+        }
+        else
+        {
+            RaiseTimelineProperties();
+        }
         if (Current is { } current && _recordedHistoryGeneration != _sourceGeneration)
         {
+            _failedPlaybackIds.Remove(current.Id);
             _recordedHistoryGeneration = _sourceGeneration;
             _ = RecordSuccessfulPlaybackAsync(current, TimeSpan.Zero);
         }
@@ -353,25 +575,93 @@ public sealed class PlaybackService : IPlaybackService
     private void MediaPlayer_MediaEnded(MediaPlayer sender, object args) => Enqueue(() =>
     {
         if (RepeatMode == PlaybackRepeatMode.One) { Seek(TimeSpan.Zero); sender.Play(); }
-        else if (RepeatMode == PlaybackRepeatMode.All || Queue.IndexOf(Current!) < Queue.Count - 1) Next();
+        else if (IsShuffleEnabled && Queue.Count > 1)
+        {
+            if (_shuffleBag.RemainingCount > 0 || RepeatMode == PlaybackRepeatMode.All) Next();
+            else IsPlaying = false;
+        }
+        else if (PlaybackQueuePolicy.NextIndex(Queue, PlaybackQueuePolicy.IndexOf(Queue, Current), RepeatMode == PlaybackRepeatMode.All) is not null) Next();
         else IsPlaying = false;
     });
 
+    private PlaybackItem TakeShuffleNext()
+    {
+        var id = _shuffleBag.Take(Queue, Current?.Id);
+        return Queue.First(item => item.Id == id);
+    }
+
     private void MediaPlayer_MediaFailed(MediaPlayer sender, MediaPlayerFailedEventArgs args) => Enqueue(() =>
     {
+        if (!ReferenceEquals(sender.Source, _activeMediaSource)) return;
         IsPlaying = false;
         StatusText = "音频无法打开，请检查授权或网络后重试";
         _logger.LogWarning("Playback failed with safe error code {ErrorCode}", args.Error.ToString());
+        if (_qualityFallbackItem is { } fallback)
+        {
+            var index = PlaybackQueuePolicy.IndexOf(Queue, Current);
+            if (index >= 0) Queue[index] = fallback;
+            Current = fallback;
+            RaiseCurrentProperties();
+            _qualityFallbackItem = null;
+            _pendingQualitySeek ??= TimeSpan.FromSeconds(Math.Max(0, PositionSeconds));
+            SetMediaSource(new Uri(fallback.SourceUri));
+            StatusText = "新音质无法打开，正在恢复原音源…";
+            return;
+        }
         if (!_hasRetriedCurrentSource && TryGetOnlineIdentity(Current, out var identity))
         {
             _hasRetriedCurrentSource = true;
             _ = RetryOnlineSourceAsync(identity, Current!);
+            return;
         }
+
+        if (Current is { } failed) SkipFailedTrack(failed);
     });
+
+    private void SkipFailedTrack(PlaybackItem failed)
+    {
+        if (!_failedPlaybackIds.Add(failed.Id))
+        {
+            StatusText = "当前队列没有可播放的歌曲";
+            return;
+        }
+        var next = FindNextUnfailedTrack(failed);
+        if (next is null)
+        {
+            StatusText = "当前队列没有可播放的歌曲";
+            return;
+        }
+        StatusText = $"“{failed.Title}”无法播放，正在跳过…";
+        _ = PlayAsync(next);
+    }
+
+    private PlaybackItem? FindNextUnfailedTrack(PlaybackItem failed)
+    {
+        var candidates = Queue.Where(item =>
+            !string.Equals(item.Id, failed.Id, StringComparison.OrdinalIgnoreCase) &&
+            !_failedPlaybackIds.Contains(item.Id)).ToArray();
+        if (candidates.Length == 0) return null;
+        if (IsShuffleEnabled) return candidates[Random.Shared.Next(candidates.Length)];
+        var index = PlaybackQueuePolicy.IndexOf(Queue, failed);
+        for (var offset = 1; offset <= Queue.Count; offset++)
+        {
+            var candidate = Queue[(Math.Max(0, index) + offset) % Queue.Count];
+            if (!string.Equals(candidate.Id, failed.Id, StringComparison.OrdinalIgnoreCase) && !_failedPlaybackIds.Contains(candidate.Id))
+                return candidate;
+        }
+        return candidates[0];
+    }
 
     private async Task RetryOnlineSourceAsync(MusicIdentity identity, PlaybackItem failedItem)
     {
-        if (_sourceResolver is null) return;
+        if (_sourceResolver is null)
+        {
+            Enqueue(() =>
+            {
+                if (Current?.Id == failedItem.Id) SkipFailedTrack(failedItem);
+            });
+            return;
+        }
         try
         {
             var result = await _sourceResolver.ResolveAsync(
@@ -381,7 +671,14 @@ public sealed class PlaybackService : IPlaybackService
                     AllowCachedSource: false,
                     ProviderMediaId: failedItem.ProviderMediaId),
                 CancellationToken.None);
-            if (!result.IsSuccess || result.Source is null) return;
+            if (!result.IsSuccess || result.Source is null)
+            {
+                Enqueue(() =>
+                {
+                    if (Current?.Id == failedItem.Id) SkipFailedTrack(failedItem);
+                });
+                return;
+            }
             if (Current?.Id != failedItem.Id) return;
 
             var refreshed = failedItem with
@@ -389,13 +686,13 @@ public sealed class PlaybackService : IPlaybackService
                 SourceUri = result.Source.Uri.AbsoluteUri,
                 QualityLabel = QualityDisplayLabel(result.Source.Quality)
             };
-            var index = Queue.IndexOf(failedItem);
+            var index = PlaybackQueuePolicy.IndexOf(Queue, failedItem);
             if (index >= 0) Queue[index] = refreshed;
             Current = refreshed;
             PositionSeconds = 0;
             DurationSeconds = Math.Max(1, refreshed.Duration.TotalSeconds);
             RaiseCurrentProperties();
-            _mediaPlayer.Source = MediaSource.CreateFromUri(result.Source.Uri);
+            SetMediaSource(result.Source.Uri);
             UpdateSystemMediaControls(refreshed);
             _mediaPlayer.Play();
             StatusText = "正在重试播放源…";
@@ -405,7 +702,10 @@ public sealed class PlaybackService : IPlaybackService
         }
         catch
         {
-            // Provider and credential details stay behind the resolver boundary.
+            Enqueue(() =>
+            {
+                if (Current?.Id == failedItem.Id) SkipFailedTrack(failedItem);
+            });
         }
     }
 
@@ -543,6 +843,12 @@ public sealed class PlaybackService : IPlaybackService
         updater.MusicProperties.AlbumTitle = item.Album;
         updater.Thumbnail = RandomAccessStreamReference.CreateFromUri(new Uri(item.ArtworkUri));
         updater.Update();
+    }
+
+    private void SetMediaSource(Uri uri)
+    {
+        _activeMediaSource = MediaSource.CreateFromUri(uri);
+        _mediaPlayer.Source = _activeMediaSource;
     }
 
     private void Enqueue(Action action)

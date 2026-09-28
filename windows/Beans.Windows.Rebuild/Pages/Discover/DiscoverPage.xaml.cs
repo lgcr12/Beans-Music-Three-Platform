@@ -25,6 +25,13 @@ public sealed partial class DiscoverPage : UserControl
 
     public DiscoverViewModel ViewModel { get; }
 
+    public UIElement DetachPlatformPicker()
+    {
+        HeaderGrid.Children.Remove(PlatformPicker);
+        HeaderGrid.Visibility = Visibility.Collapsed;
+        return PlatformPicker;
+    }
+
     public void ApplyResponsiveState(double width)
     {
         var state = width >= 1360 ? "Wide" : width >= 1180 ? "Medium" : width >= 1024 ? "Compact" : "Narrow";
@@ -116,15 +123,27 @@ public sealed partial class DiscoverPage : UserControl
 
     private void RankingList_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateRankingCardWidths();
 
+    private void DiscoverySections_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var stacked = e.NewSize.Width < 880;
+        RecommendationsColumn.Width = new GridLength(stacked ? 0 : 1.2, GridUnitType.Star);
+        Grid.SetColumn(RecommendationsSection, stacked ? 0 : 1);
+        Grid.SetRow(RecommendationsSection, stacked ? 1 : 0);
+    }
+
     private void UpdateRankingCardWidths()
     {
-        if (RankingList.ActualWidth <= 0) return;
-        var columns = RankingList.ActualWidth >= 1040 ? 4 : RankingList.ActualWidth >= 740 ? 3 : 2;
-        var gap = 12 * (columns - 1);
-        var cardWidth = Math.Clamp((RankingList.ActualWidth - gap) / columns, 200, 280);
-        for (var index = 0; index < RankingList.Items.Count; index++)
+        foreach (var list in new[] { RankingList, RecommendedList })
         {
-            if (RankingList.ContainerFromIndex(index) is ListViewItem item) item.Width = cardWidth;
+            if (list.ActualWidth <= 0) continue;
+            var columns = list.ActualWidth >= 400 ? 4 : 3;
+            var cardWidth = Math.Max(80, (list.ActualWidth - columns * 10) / columns);
+            var style = new Style(typeof(ListViewItem)) { BasedOn = (Style)Application.Current.Resources["MusicListViewItemStyle"] };
+            style.Setters.Add(new Setter(FrameworkElement.WidthProperty, cardWidth));
+            style.Setters.Add(new Setter(FrameworkElement.HeightProperty, 208d));
+            style.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(0, 0, 10, 0)));
+            style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
+            list.ItemContainerStyle = style;
         }
     }
 

@@ -5,7 +5,7 @@
         <Setter Property="FontFamily" Value="{StaticResource BeansFontFamily}" />
         <Setter Property="FontSize" Value="14" />
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-        <Setter Property="PlaceholderForeground" Value="{StaticResource TextTertiaryBrush}" />
+        <Setter Property="PlaceholderForeground" Value="#7D9BA5" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Padding" Value="0,8" />

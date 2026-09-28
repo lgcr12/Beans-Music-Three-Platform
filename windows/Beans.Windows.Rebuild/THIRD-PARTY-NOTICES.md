@@ -4,7 +4,14 @@ The repository root `LICENSE` is the controlling MIT license for Beans Music and
 remain with source or substantial redistributed portions. The repository README also
 identifies the upstream XIaodou0416/Beans-Music project and its retained notice.
 
-## Runtime packages
+## Anime typography
+
+Klee One Regular is bundled at `Assets/Fonts/KleeOne/KleeOne-Regular.ttf` from
+https://github.com/google/fonts/tree/main/ofl/kleeone (Fontworks Inc.).
+It is distributed under the SIL Open Font License 1.1; the complete license and
+copyright notice are included alongside the font as `OFL.txt`.
+
+## Runtime dependencies
 
 - Microsoft Windows App SDK: Microsoft open-source components, distributed under the
   license declared by its NuGet packages.
@@ -39,3 +46,13 @@ contains no commercial recording.
 QQ Music, NetEase Cloud Music, and KuGou Music names and marks belong to their respective
 owners. Future platform logos may be used only to identify the selected source; this app
 must not present itself as an official client.
+
+## Anime catalog metadata and remote artwork
+
+`Assets/Anime/catalog-metadata.json` contains public subject metadata retrieved from
+the Bangumi API (`https://api.bgm.tv/v0/subjects/{id}`). Source subjects and validation
+are recorded in `Docs/anime-rebuild-validation.md`. Poster URLs retain the Bangumi
+`lain.bgm.tv` origin. Artwork and descriptions belong to their respective rights
+holders; the project MIT license does not grant rights to those assets. Album covers
+returned by music providers likewise retain their provider origin. Existing local
+ambient illustrations are used as decorative scenes, not as official anime posters.

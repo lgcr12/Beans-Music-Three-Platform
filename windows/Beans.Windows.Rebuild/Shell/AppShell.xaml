@@ -19,7 +19,7 @@
                         <AdaptiveTrigger MinWindowWidth="1024" />
                     </VisualState.StateTriggers>
                     <VisualState.Setters>
-                        <Setter Target="SidebarColumn.Width" Value="180" />
+                        <Setter Target="SidebarColumn.Width" Value="196" />
                         <Setter Target="SidebarControl.IsCompact" Value="False" />
                     </VisualState.Setters>
                 </VisualState>
@@ -27,27 +27,33 @@
                     <VisualState.StateTriggers>
                         <AdaptiveTrigger MinWindowWidth="1180" />
                     </VisualState.StateTriggers>
-                    <VisualState.Setters><Setter Target="SidebarColumn.Width" Value="200" /></VisualState.Setters>
+                    <VisualState.Setters><Setter Target="SidebarColumn.Width" Value="220" /></VisualState.Setters>
                 </VisualState>
                 <VisualState x:Name="Wide">
                     <VisualState.StateTriggers>
                         <AdaptiveTrigger MinWindowWidth="1360" />
                     </VisualState.StateTriggers>
-                    <VisualState.Setters><Setter Target="SidebarColumn.Width" Value="214" /></VisualState.Setters>
+                    <VisualState.Setters><Setter Target="SidebarColumn.Width" Value="240" /></VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
         <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition x:Name="PlayerRow" Height="96" /></Grid.RowDefinitions>
         <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="88" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+        <Image Grid.RowSpan="2" Grid.ColumnSpan="2" Source="ms-appx:///Assets/Home/aurora-shell.png" Stretch="UniformToFill" IsHitTestVisible="False" Opacity="0.8"/>
+        <Rectangle Grid.RowSpan="2" Grid.ColumnSpan="2" Fill="#55051A29" IsHitTestVisible="False"/>
         <local:Sidebar x:Name="SidebarControl" xmlns:local="using:Beans.Windows.Rebuild.Shell" NavigationRequested="Sidebar_NavigationRequested" />
-        <Grid Grid.Column="1" Background="{StaticResource ContentBackgroundBrush}">
-            <Grid.RowDefinitions><RowDefinition Height="72" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Grid Grid.Column="1" Background="Transparent">
+            <Grid.RowDefinitions><RowDefinition x:Name="TopBarRow" Height="86" /><RowDefinition Height="*" /></Grid.RowDefinitions>
             <local:TopBar x:Name="TopBarControl" xmlns:local="using:Beans.Windows.Rebuild.Shell" SearchSubmitted="TopBar_SearchSubmitted" SearchTextChanged="TopBar_SearchTextChanged" SuggestionChosen="TopBar_SuggestionChosen" RouteRequested="TopBar_RouteRequested" />
-            <ContentControl x:Name="PageHost" Grid.Row="1" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+            <ContentControl x:Name="PageHost" Grid.Row="1" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Opacity="1" />
         </Grid>
         <ContentControl x:Name="PlayerHost" Grid.Row="1" Grid.ColumnSpan="2" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
         <ContentControl x:Name="FullScreenPlayerHost" Grid.RowSpan="2" Grid.ColumnSpan="2"
                         Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
-                        Canvas.ZIndex="20" />
+                        Opacity="1" Canvas.ZIndex="20" />
+        <ContentControl x:Name="AnimeHost" Grid.RowSpan="2" Grid.ColumnSpan="2"
+                        Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Canvas.ZIndex="18" />
+        <!-- Reserve the larger player height: standard 96, anime 88. -->
+        <local:AnimePortalTransition x:Name="AnimePortal" Grid.RowSpan="2" Grid.ColumnSpan="2" Margin="0,0,0,96" xmlns:local="using:Beans.Windows.Rebuild.Controls" />
     </Grid>
 </UserControl>

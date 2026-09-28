@@ -97,11 +97,21 @@ public sealed partial class PlaylistPage : UserControl, INotifyPropertyChanged
         if (_loaded) return;
         _loaded = true;
         try { await LoadAsync(); }
-        catch (OperationCanceledException) when (_loadCancellation?.IsCancellationRequested == true) { }
+        catch (OperationCanceledException) { }
         catch { StatusText = "歌单详情暂时无法打开，请返回后重试"; }
     }
 
     private void Page_Unloaded(object sender, RoutedEventArgs e) => _loadCancellation?.Cancel();
+
+    private void Playlist_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var compact = e.NewSize.Width < 960;
+        PlaylistCover.Width = PlaylistCover.Height = compact ? 148 : 196;
+        CoverColumn.Width = new GridLength(compact ? 148 : 196);
+        Grid.SetRow(SelectionActions, compact ? 1 : 0);
+        Grid.SetColumn(SelectionActions, compact ? 0 : 1);
+        Grid.SetColumnSpan(SelectionActions, compact ? 2 : 1);
+    }
 
     private void Back_Click(object sender, RoutedEventArgs e)
     {
@@ -113,6 +123,15 @@ public sealed partial class PlaylistPage : UserControl, INotifyPropertyChanged
             _ => "playlists"
         };
         _navigation?.Navigate(route);
+    }
+
+    private async void Retry_Click(object sender, RoutedEventArgs e)
+    {
+        _loadCancellation?.Cancel();
+        StatusText = "正在重新加载歌单详情…";
+        try { await LoadAsync(); }
+        catch (OperationCanceledException) when (_loadCancellation?.IsCancellationRequested == true) { }
+        catch { StatusText = "歌单详情暂时无法打开，请稍后重试"; }
     }
 
     private async void ImportToBeans_Click(object sender, RoutedEventArgs e)
@@ -428,14 +447,26 @@ public sealed partial class PlaylistPage : UserControl, INotifyPropertyChanged
         var items = Details.Tracks.Select(track => track.TryCreateSearchResult(out var item) ? item : null).OfType<SearchResultItem>().ToArray();
         if (items.Length == 0) { StatusText = "当前歌单只有预览条目，无法播放"; return; }
         if (_player is null) { StatusText = "播放服务尚未连接"; return; }
-        var first = await _player.PlaySearchResultAsync(items[0], true);
-        if (!first.IsSuccess) { StatusText = first.SafeMessage; return; }
-        foreach (var item in items.Skip(1))
-        {
-            var queued = await _player.QueueSearchResultAsync(item);
-            if (!queued.IsSuccess) { StatusText = queued.SafeMessage; return; }
-        }
-        StatusText = $"正在播放 · 已加入 {items.Length} 首";
+        var result = await _player.PlaySearchResultsAsync(items);
+        if (!result.IsSuccess) { StatusText = result.SafeMessage; return; }
+        StatusText = $"正在播放 · 队列中有 {_player.Queue.Count} 首";
+    }
+
+    private async void RandomPlay_Click(object sender, RoutedEventArgs e)
+    {
+        var items = Details.Tracks
+            .Select(track => track.TryCreateSearchResult(out var item) ? item : null)
+            .OfType<SearchResultItem>()
+            .ToArray();
+        if (items.Length == 0) { StatusText = "当前歌单只有预览条目，无法随机播放"; return; }
+        if (_player is null) { StatusText = "播放服务尚未连接"; return; }
+
+        // Randomize the resolved queue once before playback. This preserves every
+        // playable track while keeping the displayed playlist order unchanged.
+        var randomized = items.OrderBy(_ => Random.Shared.Next()).ToArray();
+        var result = await _player.PlaySearchResultsAsync(randomized);
+        if (!result.IsSuccess) { StatusText = result.SafeMessage; return; }
+        StatusText = $"正在随机播放 · 队列中有 {_player.Queue.Count} 首";
     }
 
     private async void QueueAll_Click(object sender, RoutedEventArgs e)
@@ -472,13 +503,18 @@ public sealed partial class PlaylistPage : UserControl, INotifyPropertyChanged
         var result = await _player.PlaySearchResultAsync(item, true);
         if (result.IsSuccess)
         {
+            var skipped = 0;
             foreach (var sibling in allItems.Where(value => value.StableId != item.StableId))
             {
                 var queued = await _player.QueueSearchResultAsync(sibling);
-                if (!queued.IsSuccess) break;
+                if (!queued.IsSuccess) skipped++;
             }
+            StatusText = skipped == 0
+                ? $"正在播放“{track.Title}” · 队列中有 {_player.Queue.Count} 首"
+                : $"正在播放“{track.Title}” · 队列中有 {_player.Queue.Count} 首，跳过 {skipped} 首无法播放歌曲";
+            return;
         }
-        StatusText = result.IsSuccess ? $"正在播放“{track.Title}”" : result.SafeMessage;
+        StatusText = result.SafeMessage;
     }
 
     private static PlaylistPreviewDetails EmptyDetails(PlatformRouteParameter? route)
@@ -492,7 +528,13 @@ public sealed partial class PlaylistPage : UserControl, INotifyPropertyChanged
 
     private static PlaylistPreviewDetails Map(OnlineMusicDetailContent content)
     {
-        var tracks = content.Tracks.Select(track => new LibraryTrackPreview(track.NativeId, track.Title, track.Artist,
+        // Some platform detail endpoints repeat a song when pagination overlaps
+        // or when a playlist contains the same entry more than once. StableId is
+        // platform-scoped, so this does not merge same-named songs from QQ and
+        // NetEase or collapse legitimate alternate versions.
+        var tracks = content.Tracks
+            .DistinctBy(track => track.StableId, StringComparer.OrdinalIgnoreCase)
+            .Select(track => new LibraryTrackPreview(track.NativeId, track.Title, track.Artist,
             track.Album, track.DurationText, SafeCoverUri(track.CoverUri), track.Platform, false, track.RestrictionState,
             track.DataOrigin, track.Quality, track.ProviderMediaId)).ToArray();
         return new PlaylistPreviewDetails(

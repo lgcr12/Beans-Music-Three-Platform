@@ -33,12 +33,16 @@ public sealed class JsonBeansPlaylistService : IBeansPlaylistService
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly JsonSerializerOptions _options = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
-    public JsonBeansPlaylistService(string? path = null) => _path = path ?? Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BeansMusic", "Rebuild", "beans-playlists.json");
+    public JsonBeansPlaylistService(string? path = null) => _path = Path.GetFullPath(path ?? Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BeansMusic", "Rebuild", "beans-playlists.json"));
 
     public async Task<IReadOnlyList<BeansPlaylist>> GetPlaylistsAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
+        // Reading an already committed snapshot must not require write access to the
+        // sidecar lock file. Some restricted launch contexts can read LocalAppData but
+        // cannot create/open the lock for writing; treating that as an empty library
+        // made valid playlists appear to disappear. Mutations still take the lock.
         try { return await LoadLockedAsync(cancellationToken); }
         finally { _gate.Release(); }
     }
@@ -49,6 +53,7 @@ public sealed class JsonBeansPlaylistService : IBeansPlaylistService
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            await using var lease = await AcquireFileLockAsync(cancellationToken);
             var values = (await LoadLockedAsync(cancellationToken)).ToList();
             var now = DateTimeOffset.UtcNow;
             var playlist = new BeansPlaylist(Guid.NewGuid().ToString("N"), normalized, [], now, now);
@@ -79,6 +84,7 @@ public sealed class JsonBeansPlaylistService : IBeansPlaylistService
         await _gate.WaitAsync(cancellationToken);
         try
         {
+            await using var lease = await AcquireFileLockAsync(cancellationToken);
             var values = (await LoadLockedAsync(cancellationToken)).ToList();
             var index = values.FindIndex(item => item.Id == playlistId);
             if (index < 0) return 0;
@@ -95,28 +101,75 @@ public sealed class JsonBeansPlaylistService : IBeansPlaylistService
 
     private async Task<IReadOnlyList<BeansPlaylist>> LoadLockedAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_path)) return [];
+        if (!File.Exists(_path))
+            return File.Exists(_path + ".bak") ? await ReadFileAsync(_path + ".bak", cancellationToken) : [];
         try
         {
-            await using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
-            return await JsonSerializer.DeserializeAsync<List<BeansPlaylist>>(stream, _options, cancellationToken) ?? [];
+            return await ReadFileAsync(_path, cancellationToken);
         }
-        catch (JsonException) { return []; }
-        catch (IOException) { return []; }
-        catch (UnauthorizedAccessException) { return []; }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException)
+        {
+            // A bad file is not an empty library. Refuse mutations unless a valid backup exists.
+            if (File.Exists(_path + ".bak")) return await ReadFileAsync(_path + ".bak", cancellationToken);
+            throw new InvalidDataException("Beans 歌单文件无法读取，已保留原文件。", ex);
+        }
+    }
+
+    private async Task<IReadOnlyList<BeansPlaylist>> ReadFileAsync(string path, CancellationToken ct)
+    {
+        // File.Replace publishes a complete new snapshot atomically. Allow a writer to
+        // replace the file while an existing reader finishes consuming the old handle.
+        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.Asynchronous);
+        var values = await JsonSerializer.DeserializeAsync<List<BeansPlaylist>>(stream, _options, ct);
+        if (values is null || values.Any(p => p is null || string.IsNullOrWhiteSpace(p.Id) || string.IsNullOrWhiteSpace(p.Title) || p.Tracks is null || p.Tracks.Any(t => t is null)) ||
+            values.Select(p => p.Id).Distinct(StringComparer.Ordinal).Count() != values.Count)
+            throw new InvalidDataException("Beans 歌单文件内容不完整。");
+        return values;
+    }
+
+    private async Task<FileStream> AcquireFileLockAsync(CancellationToken ct)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        var started = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            try { return new FileStream(_path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+            catch (IOException) when (started.Elapsed < TimeSpan.FromSeconds(5)) { await Task.Delay(50, ct); }
+        }
     }
 
     private async Task SaveLockedAsync(IReadOnlyList<BeansPlaylist> values, CancellationToken cancellationToken)
     {
         var directory = Path.GetDirectoryName(_path);
         if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
-        var temporary = _path + ".tmp";
-        await using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+        var temporary = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
         {
-            await JsonSerializer.SerializeAsync(stream, values, _options, cancellationToken);
-            await stream.FlushAsync(cancellationToken);
+            await using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+            {
+                await JsonSerializer.SerializeAsync(stream, values, _options, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+                stream.Flush(flushToDisk: true);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (File.Exists(_path))
+            {
+                var validPrimary = true;
+                try { await ReadFileAsync(_path, cancellationToken); }
+                catch (Exception ex) when (ex is JsonException or InvalidDataException) { validPrimary = false; }
+                // Never replace a good backup with a corrupt primary during recovery.
+                var backup = validPrimary ? _path + ".bak" : _path + ".corrupt-" + Guid.NewGuid().ToString("N");
+                File.Replace(temporary, _path, backup);
+            }
+            else
+            {
+                File.Move(temporary, _path);
+                File.Copy(_path, _path + ".bak", true);
+            }
         }
-        File.Move(temporary, _path, true);
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
     private static string NormalizeTitle(string title)

@@ -27,6 +27,10 @@ public sealed partial class TopBar : UserControl
         SuggestionPopup.IsOpen = suggestions.Count > 0 && SearchTextBox.Text.Trim().Length >= 2;
     }
 
+    public void SetPageAccessory(UIElement? content) => PageAccessory.Content = content;
+
+    public void SetSearchVisible(bool visible) => ActionsGrid.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
     public void HideSuggestions() => SuggestionPopup.IsOpen = false;
 
     public void ApplyResponsiveState(double windowWidth)

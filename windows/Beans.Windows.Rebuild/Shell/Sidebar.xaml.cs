@@ -25,7 +25,14 @@ public sealed partial class Sidebar : UserControl
     private void ApplyCompactMode(bool compact)
     {
         var visibility = compact ? Visibility.Collapsed : Visibility.Visible;
-        foreach (var label in new[] { BrandLabel, HomeLabel, DiscoverLabel, LibraryLabel, PlaylistsLabel, FavoritesLabel, LocalLabel, SettingsLabel }) label.Visibility = visibility;
+        foreach (var label in new[] { BrandLabel, HomeLabel, DiscoverLabel, AnimeLabel, LibraryLabel, PlaylistsLabel, FavoritesLabel, LocalLabel, SettingsLabel, SearchLabel, AccountsLabel, DownloadsLabel }) label.Visibility = visibility;
+    }
+
+    public void SelectRoute(string route)
+    {
+        foreach (var item in NavigationItems.Children.OfType<RadioButton>())
+            item.IsChecked = item.Tag?.ToString() == route;
+        SettingsNavigation.IsChecked = route == "settings";
     }
 
     private void Navigation_Click(object sender, RoutedEventArgs e)

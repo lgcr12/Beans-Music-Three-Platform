@@ -8,7 +8,7 @@
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="MinHeight" Value="40" />
         <Setter Property="Padding" Value="16,8" />
-        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="CornerRadius" Value="22" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Background" Value="{StaticResource Primary600Brush}" />
         <Setter Property="Foreground" Value="White" />
@@ -72,9 +72,9 @@
     <Style x:Key="PrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseBeansButtonStyle}" />
 
     <Style x:Key="SecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseBeansButtonStyle}">
-        <Setter Property="Background" Value="{StaticResource Primary050Brush}" />
-        <Setter Property="Foreground" Value="{StaticResource Primary700Brush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource Primary200Brush}" />
+        <Setter Property="Background" Value="#24445A68" />
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="#416A8490" />
     </Style>
 
     <Style x:Key="GhostButtonStyle" TargetType="Button" BasedOn="{StaticResource BaseBeansButtonStyle}">
@@ -104,7 +104,58 @@
         <Setter Property="Foreground" Value="White" />
     </Style>
 
+    <Style x:Key="PlayerIconButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
+        <Setter Property="Background" Value="#1AFFFFFF" />
+        <Setter Property="BorderBrush" Value="#35FFFFFF" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <Style x:Key="AnimeHudButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
+        <Setter Property="Width" Value="42" /><Setter Property="Height" Value="42" /><Setter Property="CornerRadius" Value="21" />
+        <Setter Property="Background" Value="#18FFFFFF" /><Setter Property="Foreground" Value="White" /><Setter Property="BorderBrush" Value="#D9FFFFFF" /><Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style x:Key="AnimeHudPlayButtonStyle" TargetType="Button" BasedOn="{StaticResource AnimeHudButtonStyle}">
+        <Setter Property="Width" Value="64" /><Setter Property="Height" Value="64" /><Setter Property="CornerRadius" Value="32" /><Setter Property="BorderThickness" Value="2" />
+        <Setter Property="Background" Value="#20FFFFFF" />
+    </Style>
+    <Style x:Key="AnimePaperButtonStyle" TargetType="Button">
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+            <Grid>
+                <VisualStateManager.VisualStateGroups><VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal" />
+                    <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="Sheen.Opacity" Value="0.2" /></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="Sheen.Opacity" Value="0.35" /></VisualState.Setters></VisualState>
+                    <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="Paper.Opacity" Value="0.5" /></VisualState.Setters></VisualState>
+                </VisualStateGroup></VisualStateManager.VisualStateGroups>
+                <Border x:Name="Paper" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
+                    <ContentPresenter Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" Padding="{TemplateBinding Padding}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="Center" />
+                </Border>
+                <Border x:Name="Sheen" Background="White" Opacity="0" CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False" />
+            </Grid>
+        </ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="AnimeReferenceGhostButtonStyle" TargetType="Button" BasedOn="{StaticResource AnimePaperButtonStyle}">
+        <Setter Property="Padding" Value="0" /><Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="Width" Value="42" /><Setter Property="Height" Value="42" /><Setter Property="MinHeight" Value="42" /><Setter Property="CornerRadius" Value="21" />
+        <Setter Property="Background" Value="#08FFFFFF" /><Setter Property="Foreground" Value="#E6FFFFFF" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style x:Key="AnimeReferenceShuffleButtonStyle" TargetType="Button" BasedOn="{StaticResource AnimePaperButtonStyle}">
+        <Setter Property="Padding" Value="0" /><Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="Width" Value="28" /><Setter Property="Height" Value="50" /><Setter Property="MinHeight" Value="50" /><Setter Property="CornerRadius" Value="0" />
+        <Setter Property="Background" Value="Transparent" /><Setter Property="Foreground" Value="#F2FFFFFF" /><Setter Property="BorderBrush" Value="Transparent" /><Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style x:Key="AnimeReferenceControlButtonStyle" TargetType="Button" BasedOn="{StaticResource AnimePaperButtonStyle}">
+        <Setter Property="Padding" Value="0" /><Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="Width" Value="50" /><Setter Property="Height" Value="50" /><Setter Property="MinHeight" Value="50" /><Setter Property="CornerRadius" Value="25" />
+        <Setter Property="Background" Value="#08FFFFFF" /><Setter Property="Foreground" Value="#F2FFFFFF" /><Setter Property="BorderBrush" Value="#C0FFFFFF" /><Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style x:Key="AnimeReferencePlayButtonStyle" TargetType="Button" BasedOn="{StaticResource AnimeReferenceControlButtonStyle}">
+        <Setter Property="Width" Value="74" /><Setter Property="Height" Value="74" /><Setter Property="MinHeight" Value="74" /><Setter Property="CornerRadius" Value="37" /><Setter Property="BorderThickness" Value="1.5" />
+        <Setter Property="Background" Value="#12FFFFFF" />
+    </Style>
+
     <Style x:Key="SidebarNavigationItemStyle" TargetType="RadioButton">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="Height" Value="48" />
         <Setter Property="Margin" Value="8,2" />
         <Setter Property="Padding" Value="18,0" />
@@ -139,7 +190,7 @@
                                 <VisualState x:Name="Unchecked" />
                                 <VisualState x:Name="Checked">
                                     <VisualState.Setters>
-                                        <Setter Target="BackgroundBorder.Background" Value="{StaticResource SidebarActiveBrush}" />
+                                        <Setter Target="SelectedBackground.Opacity" Value="1" />
                                         <Setter Target="Presenter.Foreground" Value="{StaticResource SidebarTextBrush}" />
                                         <Setter Target="Indicator.Opacity" Value="1" />
                                     </VisualState.Setters>
@@ -154,6 +205,7 @@
                                 <VisualState x:Name="PointerFocused" />
                             </VisualStateGroup>
                         </VisualStateManager.VisualStateGroups>
+                        <Border x:Name="SelectedBackground" Background="{StaticResource SidebarActiveBrush}" CornerRadius="8" Opacity="0" />
                         <Border x:Name="BackgroundBorder" Background="Transparent" CornerRadius="8">
                             <Grid>
                                 <Border x:Name="Indicator" Width="3" Height="24" HorizontalAlignment="Left" Background="{StaticResource Primary400Brush}" CornerRadius="2" Opacity="0" />

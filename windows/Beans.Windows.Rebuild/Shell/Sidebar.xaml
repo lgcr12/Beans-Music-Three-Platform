@@ -2,31 +2,34 @@
     x:Class="Beans.Windows.Rebuild.Shell.Sidebar"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid Background="{StaticResource SidebarGradientBrush}">
+    <Grid Background="#C8061B29" BorderBrush="#25456876" BorderThickness="0,0,1,0">
         <Grid.RowDefinitions>
-            <RowDefinition Height="76" />
+            <RowDefinition Height="92" />
             <RowDefinition Height="*" />
             <RowDefinition Height="66" />
         </Grid.RowDefinitions>
 
-        <Grid Padding="22,14" ColumnSpacing="12">
+        <Grid Padding="26,20" ColumnSpacing="12">
             <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
             <Image Width="28" Height="28" Source="ms-appx:///Assets/Branding/beans-icon.png" Stretch="Uniform" />
             <TextBlock x:Name="BrandLabel" Grid.Column="1" Text="Beans Music" Style="{StaticResource BrandTextStyle}" VerticalAlignment="Center" />
         </Grid>
 
-        <StackPanel Grid.Row="1" Spacing="2">
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled" VerticalScrollBarVisibility="Auto"><StackPanel x:Name="NavigationItems" Spacing="4">
             <RadioButton Tag="home" GroupName="PrimaryNav" IsChecked="True" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click">
-                <StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE80F;" FontSize="21" /><TextBlock x:Name="HomeLabel" Text="首页" Foreground="{Binding Foreground, RelativeSource={RelativeSource Mode=TemplatedParent}}" /></StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE80F;" FontSize="21" /><TextBlock x:Name="HomeLabel" Text="首页" Foreground="{StaticResource SidebarTextMutedBrush}" /></StackPanel>
             </RadioButton>
             <RadioButton Tag="discover" GroupName="PrimaryNav" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click">
                 <StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE7C4;" FontSize="21" /><TextBlock x:Name="DiscoverLabel" Text="发现" Foreground="{StaticResource SidebarTextMutedBrush}" /></StackPanel>
+            </RadioButton>
+            <RadioButton Tag="anime" GroupName="PrimaryNav" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click">
+                <StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE7FC;" FontSize="21" /><TextBlock x:Name="AnimeLabel" Text="二次元" Foreground="{StaticResource SidebarTextMutedBrush}" /></StackPanel>
             </RadioButton>
             <RadioButton Tag="library" GroupName="PrimaryNav" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click">
                 <StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE8D6;" FontSize="21" /><TextBlock x:Name="LibraryLabel" Text="我的音乐" Foreground="{StaticResource SidebarTextMutedBrush}" /></StackPanel>
             </RadioButton>
             <RadioButton Tag="playlists" GroupName="PrimaryNav" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click">
-                <StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE710;" FontSize="21" /><TextBlock x:Name="PlaylistsLabel" Text="创建的歌单" Foreground="{StaticResource SidebarTextMutedBrush}" /></StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE710;" FontSize="21" /><TextBlock x:Name="PlaylistsLabel" Text="我的歌单" Foreground="{StaticResource SidebarTextMutedBrush}" /></StackPanel>
             </RadioButton>
             <RadioButton Tag="favorites" GroupName="PrimaryNav" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click">
                 <StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xEB51;" FontSize="21" /><TextBlock x:Name="FavoritesLabel" Text="收藏夹" Foreground="{StaticResource SidebarTextMutedBrush}" /></StackPanel>
@@ -34,9 +37,12 @@
             <RadioButton Tag="local" GroupName="PrimaryNav" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click">
                 <StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE8B7;" FontSize="21" /><TextBlock x:Name="LocalLabel" Text="本地音乐" Foreground="{StaticResource SidebarTextMutedBrush}" /></StackPanel>
             </RadioButton>
-        </StackPanel>
+            <RadioButton Tag="search" GroupName="PrimaryNav" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click"><StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE721;" FontSize="21"/><TextBlock x:Name="SearchLabel" Text="搜索音乐"/></StackPanel></RadioButton>
+            <RadioButton Tag="downloads" GroupName="PrimaryNav" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click"><StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE896;" FontSize="21"/><TextBlock x:Name="DownloadsLabel" Text="下载管理"/></StackPanel></RadioButton>
+            <RadioButton Tag="accounts" GroupName="PrimaryNav" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click"><StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE77B;" FontSize="21"/><TextBlock x:Name="AccountsLabel" Text="账号与平台"/></StackPanel></RadioButton>
+        </StackPanel></ScrollViewer>
 
-        <RadioButton Grid.Row="2" Tag="settings" GroupName="PrimaryNav" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click">
+        <RadioButton x:Name="SettingsNavigation" Grid.Row="2" Tag="settings" GroupName="PrimaryNav" Style="{StaticResource SidebarNavigationItemStyle}" Click="Navigation_Click">
             <StackPanel Orientation="Horizontal" Spacing="14"><FontIcon Glyph="&#xE713;" FontSize="21" /><TextBlock x:Name="SettingsLabel" Text="设置" Foreground="{StaticResource SidebarTextMutedBrush}" /></StackPanel>
         </RadioButton>
     </Grid>

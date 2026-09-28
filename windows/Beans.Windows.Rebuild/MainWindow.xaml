@@ -2,5 +2,5 @@
     x:Class="Beans.Windows.Rebuild.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid x:Name="RootHost" Background="{StaticResource AppBackgroundBrush}" />
+    <Grid x:Name="RootHost" RequestedTheme="Dark" Background="{StaticResource AppBackgroundBrush}" />
 </Window>

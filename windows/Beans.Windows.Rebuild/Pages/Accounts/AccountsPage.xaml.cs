@@ -36,6 +36,24 @@ public sealed partial class AccountsPage : UserControl, INotifyPropertyChanged
         Unloaded += (_, _) => _refreshCancellation?.Cancel();
     }
 
+    private void Root_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var compact = e.NewSize.Width < 1040;
+        foreach (var (card, actions) in new[] { (BeansCard, BeansActions), (QqCard, QqActions), (NetEaseCard, NetEaseActions) })
+        {
+            Grid.SetRow(actions, compact ? 1 : 0);
+            Grid.SetColumn(actions, compact ? 0 : 2);
+            Grid.SetColumnSpan(actions, compact ? 3 : 1);
+        }
+    }
+
+    private void OpenBeansForm_Click(object sender, RoutedEventArgs e)
+    {
+        BeansForm.IsExpanded = true;
+        EmailBox.Focus(FocusState.Programmatic);
+        BeansForm.StartBringIntoView();
+    }
+
     public PlatformId QqPlatform => PlatformId.QqMusic;
     public PlatformId NetEasePlatform => PlatformId.NetEaseMusic;
     public PlatformId LocalPlatform => PlatformId.Local;

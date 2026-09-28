@@ -9,6 +9,7 @@ using Beans.Windows.Rebuild.Services.Security;
 using Beans.Windows.Rebuild.Services.Accounts;
 using Beans.Windows.Rebuild.ViewModels;
 using Beans.Windows.Rebuild.Services.Search;
+using Beans.Windows.Rebuild.Services.Anime;
 using Beans.Windows.Rebuild.Services.LocalMusic;
 using Beans.Windows.Rebuild.Services.Lyrics;
 using Beans.Windows.Rebuild.Services.Downloads;
@@ -102,11 +103,20 @@ public partial class App : Application
         services.AddSingleton<IDownloadManager, DownloadManager>();
         services.AddSingleton<IOnlineMusicDetailAdapter, QqMusicDetailAdapter>();
         services.AddSingleton<IOnlineMusicDetailAdapter, NetEaseMusicDetailAdapter>();
-        services.AddSingleton<IOnlineMusicDetailService, OnlineMusicDetailService>();
+        services.AddSingleton<IOnlineMusicDetailService>(provider => new OnlineMusicDetailService(
+            provider.GetServices<IOnlineMusicDetailAdapter>(), provider.GetRequiredService<IDiscoveryCache>(),
+            @"D:\Apps\BeansMusic\Cache\Details"));
         services.AddSingleton<IPlatformSearchAdapter, QqMusicSearchAdapter>();
         services.AddSingleton<IPlatformSearchAdapter, NetEaseMusicSearchAdapter>();
         services.AddSingleton<IPlatformSearchAdapter, LocalMusicSearchAdapter>();
         services.AddSingleton<IMusicSearchService, MusicSearchService>();
+        services.AddSingleton<AnimeDiskCache>();
+        services.AddSingleton<AnimeSession>();
+        services.AddSingleton<IAnimeCatalogService, AnimeCatalogService>();
+        services.AddSingleton<IAnimeSearchService>(provider => (IAnimeSearchService)provider.GetRequiredService<IAnimeCatalogService>());
+        services.AddSingleton<IAnimeSongMatcher, AnimeSongMatcher>();
+        services.AddSingleton<AnimeThemePrefetch>();
+        services.AddSingleton<IAnimeExternalLinkService, AnimeExternalLinkService>();
         services.AddSingleton<IMusicPlatformService>(_ => new PreviewMusicPlatformService(new MusicPlatformDescriptor(
             PlatformId.QqMusic, "QQ 音乐", "QQ", "Q", "#2DB55E", true, true, AuthorizationState.SignedOut,
             true, false, true, true, true, "可浏览公开内容")));
@@ -164,5 +174,10 @@ public partial class App : Application
         var window = _services.GetRequiredService<MainWindow>();
         _services.GetRequiredService<IPlaybackService>().AttachDispatcherQueue(window.DispatcherQueue);
         window.Activate();
+        _ = _services.GetRequiredService<AnimeThemePrefetch>().WarmHomeAsync();
+#if DEBUG
+        Tools.PortalVisualValidation.Start(window);
+        Tools.AnimeSceneValidation.Start(window);
+#endif
     }
 }

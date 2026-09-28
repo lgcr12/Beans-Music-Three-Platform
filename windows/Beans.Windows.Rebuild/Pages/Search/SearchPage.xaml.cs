@@ -1,5 +1,7 @@
 using Beans.Windows.Rebuild.Infrastructure.Navigation;
 using Beans.Windows.Rebuild.Models;
+using Beans.Windows.Rebuild.Services.BeansPlaylists;
+using Beans.Windows.Rebuild.Services.Library;
 using Beans.Windows.Rebuild.Services.Playback;
 using Beans.Windows.Rebuild.ViewModels;
 using Microsoft.UI.Xaml;
@@ -7,19 +9,35 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace Beans.Windows.Rebuild.Pages.Search;
 
+public sealed class SearchResultGroup(string title, IReadOnlyList<SearchResultItem> items)
+{
+    public string Title { get; } = title;
+    public IReadOnlyList<SearchResultItem> Items { get; } = items;
+}
+
 public sealed partial class SearchPage : UserControl
 {
     private readonly INavigationService _navigation;
     private readonly IPlaybackService _player;
+    private readonly IBeansPlaylistService _beansPlaylists;
     private bool _initialized;
+    private SearchResultItem[] _renderedResults = [];
+    private readonly Microsoft.UI.Xaml.Data.CollectionViewSource _groupedResults = new() { IsSourceGrouped = true, ItemsPath = new PropertyPath("Items") };
     public SearchViewModel ViewModel { get; }
 
-    public SearchPage(SearchViewModel viewModel, IPlaybackService player, INavigationService navigation, string? initialQuery)
+    public SearchPage(
+        SearchViewModel viewModel,
+        IPlaybackService player,
+        INavigationService navigation,
+        IBeansPlaylistService beansPlaylists,
+        string? initialQuery)
     {
         ViewModel = viewModel;
         _player = player;
         _navigation = navigation;
+        _beansPlaylists = beansPlaylists;
         InitializeComponent();
+        PageSearchBox.Text = initialQuery ?? string.Empty;
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         Loaded += async (_, _) =>
         {
@@ -42,6 +60,13 @@ public sealed partial class SearchPage : UserControl
 
     private void Render()
     {
+        if (!_renderedResults.SequenceEqual(ViewModel.Results))
+        {
+            _renderedResults = ViewModel.Results.ToArray();
+            _groupedResults.Source = _renderedResults.GroupBy(item => item.Platform)
+                .Select(group => new SearchResultGroup($"{group.Key.ToDisplayName()} · {group.Count()} 个结果", group.ToArray())).ToArray();
+            ResultsList.ItemsSource = _groupedResults.View;
+        }
         QueryTitle.Text = string.IsNullOrWhiteSpace(ViewModel.QueryText) ? "搜索" : $"搜索“{ViewModel.QueryText}”";
         ResultSummary.Text = ViewModel.StatusText;
         PartialHint.Text = ViewModel.IsPartialSuccess ? "部分来源不可用，已显示可用结果" : string.Empty;
@@ -78,6 +103,23 @@ public sealed partial class SearchPage : UserControl
         if (e.ClickedItem is SearchSuggestion suggestion) await ViewModel.SubmitSuggestionAsync(suggestion);
     }
 
+    private async void PageSearch_TextChanged(object sender, TextChangedEventArgs e) => await ViewModel.UpdateDraftAsync(PageSearchBox.Text);
+    private async void SubmitSearch_Click(object sender, RoutedEventArgs e) => await ViewModel.SearchAsync(true);
+    private async void PageSearch_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (e.Key != global::Windows.System.VirtualKey.Enter) return;
+        e.Handled = true;
+        await ViewModel.SearchAsync(true);
+    }
+    private async void PlayResult_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: SearchResultItem item }) await PlayAsync(item);
+    }
+    private async void QueueResult_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: SearchResultItem item }) await QueueItemAsync(item, false);
+    }
+
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await ViewModel.SearchAsync(true);
     private void Back_Click(object sender, RoutedEventArgs e) => _navigation.Navigate("home");
 
@@ -104,10 +146,125 @@ public sealed partial class SearchPage : UserControl
         AddRouteItem(menu, "打开歌手", "artist", item, item.Artist);
         AddRouteItem(menu, "打开专辑", "album", item, item.Album);
         AddRouteItem(menu, "打开歌单", "playlist", item, item.Title);
-        menu.Items.Add(new MenuFlyoutItem { Text = "添加到歌单（后续阶段开放）", IsEnabled = false });
+        var addToPlaylist = new MenuFlyoutItem
+        {
+            Text = "添加到歌单",
+            IsEnabled = CanAddToPlaylist(item)
+        };
+        addToPlaylist.Click += async (_, _) => await AddToPlaylistAsync(item);
+        menu.Items.Add(addToPlaylist);
         menu.Items.Add(new MenuFlyoutItem { Text = "收藏（后续阶段开放）", IsEnabled = false });
         menu.ShowAt(button);
     }
+
+    private async Task AddToPlaylistAsync(SearchResultItem item)
+    {
+        if (!CanAddToPlaylist(item))
+        {
+            ViewModel.SetNotice("只有 QQ 音乐和网易云音乐的真实歌曲可以添加到 Beans 歌单");
+            return;
+        }
+
+        if (!LibraryMediaSnapshot.TryCreate(item, out var track) || track is null)
+        {
+            ViewModel.SetNotice("当前歌曲没有可保存的真实标识");
+            return;
+        }
+
+        IReadOnlyList<BeansPlaylist> playlists;
+        try
+        {
+            playlists = await _beansPlaylists.GetPlaylistsAsync();
+        }
+        catch
+        {
+            ViewModel.SetNotice("Beans 歌单暂时无法读取");
+            return;
+        }
+
+        var picker = new ComboBox
+        {
+            ItemsSource = playlists,
+            DisplayMemberPath = nameof(BeansPlaylist.Title),
+            SelectedIndex = playlists.Count > 0 ? 0 : -1,
+            IsEnabled = playlists.Count > 0,
+            MinWidth = 300,
+            PlaceholderText = "选择已有 Beans 歌单"
+        };
+        var titleBox = new TextBox
+        {
+            Header = "新建歌单名称（选择“新建并添加”时使用）",
+            Text = "我的歌单",
+            MinWidth = 300
+        };
+        var content = new StackPanel { Spacing = 12 };
+        content.Children.Add(new TextBlock
+        {
+            Text = $"将添加“{item.Title}”；重复歌曲会自动跳过。",
+            TextWrapping = TextWrapping.Wrap
+        });
+        content.Children.Add(picker);
+        content.Children.Add(titleBox);
+
+        var dialog = new ContentDialog
+        {
+            Title = "添加到 Beans 歌单",
+            Content = content,
+            PrimaryButtonText = playlists.Count > 0 ? "添加到选中歌单" : "添加",
+            SecondaryButtonText = "新建并添加",
+            CloseButtonText = "取消",
+            XamlRoot = XamlRoot
+        };
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.None) return;
+
+        BeansPlaylist? target;
+        if (result == ContentDialogResult.Secondary)
+        {
+            if (string.IsNullOrWhiteSpace(titleBox.Text))
+            {
+                ViewModel.SetNotice("请输入新歌单名称");
+                return;
+            }
+
+            try
+            {
+                target = await _beansPlaylists.CreateAsync(titleBox.Text, CancellationToken.None);
+            }
+            catch (ArgumentException exception)
+            {
+                ViewModel.SetNotice(exception.Message);
+                return;
+            }
+        }
+        else
+        {
+            target = picker.SelectedItem as BeansPlaylist;
+            if (target is null)
+            {
+                ViewModel.SetNotice("请先选择 Beans 歌单，或使用新建并添加");
+                return;
+            }
+        }
+
+        try
+        {
+            var added = await _beansPlaylists.AddTrackAsync(target.Id, track);
+            ViewModel.SetNotice(added
+                ? $"已添加到“{target.Title}”"
+                : $"“{item.Title}”已在“{target.Title}”中");
+        }
+        catch
+        {
+            ViewModel.SetNotice("添加到 Beans 歌单失败，请稍后重试");
+        }
+    }
+
+    private static bool CanAddToPlaylist(SearchResultItem item) =>
+        item.ResultType == SearchResultType.Track &&
+        item.DataOrigin != SearchDataOrigin.Preview &&
+        (item.Platform is PlatformId.QqMusic or PlatformId.NetEaseMusic) &&
+        !string.IsNullOrWhiteSpace(item.NativeId);
 
     private void AddRouteItem(MenuFlyout menu, string text, string route, SearchResultItem item, string title)
     {

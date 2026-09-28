@@ -10,6 +10,14 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace Beans.Windows.Rebuild.Pages.Library;
 
+public sealed class LibraryPlaylistCard(BeansPlaylist playlist)
+{
+    public BeansPlaylist Playlist { get; } = playlist;
+    public string Title => Playlist.Title;
+    public string TrackCountText => Playlist.TrackCountText;
+    public string CoverUri => Playlist.Tracks.Select(track => track.CoverUri).FirstOrDefault(uri => !string.IsNullOrWhiteSpace(uri)) ?? "ms-appx:///Assets/Home/aurora-shell.png";
+}
+
 public sealed partial class LibraryPage : UserControl, INotifyPropertyChanged
 {
     private readonly INavigationService _navigation;
@@ -17,8 +25,10 @@ public sealed partial class LibraryPage : UserControl, INotifyPropertyChanged
     private readonly IUserLibraryService _library;
     private readonly IBeansPlaylistService? _beansPlaylists;
     private readonly ObservableCollection<PlaybackHistoryEntry> _history = [];
-    public ObservableCollection<BeansPlaylist> BeansPlaylists { get; } = [];
-    public Visibility BeansEmptyVisibility => BeansPlaylists.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    public ObservableCollection<LibraryPlaylistCard> BeansPlaylists { get; } = [];
+    private bool _beansLoaded;
+    private bool _beansLoading;
+    public Visibility BeansEmptyVisibility => _beansLoaded && BeansPlaylists.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     private bool _loaded;
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -35,9 +45,17 @@ public sealed partial class LibraryPage : UserControl, INotifyPropertyChanged
 
     private async void LibraryPage_Loaded(object sender, RoutedEventArgs e)
     {
-        if (_loaded) return;
-        _loaded = true;
-        await RefreshAsync();
+        var playlists = LoadBeansPlaylistsAsync();
+        if (!_loaded)
+        {
+            _loaded = true;
+            await RefreshAsync();
+        }
+        await playlists;
+    }
+
+    private async void RefreshPlaylists_Click(object sender, RoutedEventArgs e)
+    {
         await LoadBeansPlaylistsAsync();
     }
 
@@ -67,11 +85,27 @@ public sealed partial class LibraryPage : UserControl, INotifyPropertyChanged
         catch (Exception) { StatusText.Text = "暂时无法清空播放记录，请重试。"; }
     }
 
+    private void Library_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var stacked = e.NewSize.Width < 900;
+        LibraryShortcuts.ColumnDefinitions[1].Width = new GridLength(stacked ? 0 : 1, GridUnitType.Star);
+        LibraryShortcuts.ColumnDefinitions[2].Width = new GridLength(stacked ? 0 : 1, GridUnitType.Star);
+        for (var i = 0; i < LibraryShortcuts.Children.Count; i++)
+        {
+            Grid.SetColumn((FrameworkElement)LibraryShortcuts.Children[i], stacked ? 0 : i);
+            Grid.SetRow((FrameworkElement)LibraryShortcuts.Children[i], stacked ? i : 0);
+        }
+    }
+
+    private void Favorites_Click(object sender, RoutedEventArgs e) => _navigation.Navigate("favorites");
+    private void Queue_Click(object sender, RoutedEventArgs e) => _navigation.Navigate("queue");
+    private void History_Click(object sender, RoutedEventArgs e) => HistoryHeading.StartBringIntoView();
+
     private void CreatePlaylist_Click(object sender, RoutedEventArgs e) => _navigation.Navigate("playlists");
 
     private void BeansPlaylist_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is BeansPlaylist playlist)
+        if ((sender as FrameworkElement)?.DataContext is LibraryPlaylistCard { Playlist: var playlist })
             _navigation.Navigate("playlist", new PlatformRouteParameter("beans", playlist.Id, playlist.Title));
     }
 
@@ -107,13 +141,19 @@ public sealed partial class LibraryPage : UserControl, INotifyPropertyChanged
 
     private async Task LoadBeansPlaylistsAsync()
     {
-        if (_beansPlaylists is null) return;
+        if (_beansPlaylists is null || _beansLoading) return;
+        _beansLoading = true;
         try
         {
+            var playlists = (await _beansPlaylists.GetPlaylistsAsync()).Select(p => new LibraryPlaylistCard(p)).ToArray();
             BeansPlaylists.Clear();
-            foreach (var playlist in await _beansPlaylists.GetPlaylistsAsync()) BeansPlaylists.Add(playlist);
+            foreach (var playlist in playlists) BeansPlaylists.Add(playlist);
+            _beansLoaded = true;
+            BeansPlaylistCountText.Text = $"{BeansPlaylists.Count} 个";
+            BeansStatusText.Text = BeansPlaylists.Count > 0 ? $"已加载 {BeansPlaylists.Count} 个 Beans 歌单" : "还没有 Beans 歌单";
             PropertyChanged?.Invoke(this, new(nameof(BeansEmptyVisibility)));
         }
-        catch { }
+        catch { BeansStatusText.Text = _beansLoaded ? "Beans 歌单读取失败，已保留当前列表，请刷新重试" : "Beans 歌单读取失败，请刷新重试"; }
+        finally { _beansLoading = false; }
     }
 }

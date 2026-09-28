@@ -4,32 +4,49 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:models="using:Beans.Windows.Rebuild.Pages.Library"
     xmlns:badge="using:Beans.Windows.Rebuild.Controls.PlatformBadge">
-    <Grid Background="{StaticResource ContentBackgroundBrush}">
-        <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="24,24,24,32" Spacing="24">
-                <Grid ColumnSpacing="22">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="220" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                    <Border Width="220" Height="220" CornerRadius="8" Background="{StaticResource SurfaceSecondaryBrush}"><Image Source="{x:Bind Details.Playlist.CoverUri}" Stretch="UniformToFill" /></Border>
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="10">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button Style="{StaticResource IconButtonStyle}" Click="Back_Click" AutomationProperties.Name="返回歌单列表" ToolTipService.ToolTip="返回歌单列表"><FontIcon Glyph="&#xE72B;" FontSize="18" /></Button>
-                            <TextBlock Text="歌单详情" Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center" />
-                        </StackPanel>
-                        <TextBlock Text="{x:Bind Details.Playlist.Title}" Style="{StaticResource PageTitleTextStyle}" TextWrapping="Wrap" />
-                        <badge:PlatformBadge Platform="{x:Bind Details.Playlist.Platform}" HorizontalAlignment="Left" />
-                        <TextBlock Text="{x:Bind Details.Playlist.Description}" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" MaxWidth="620" />
-                        <TextBlock Text="{x:Bind Details.Description}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" MaxWidth="620" />
-                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,0">
-                            <Button Content="播放全部" Style="{StaticResource PrimaryButtonStyle}" Click="PlayAll_Click" IsEnabled="{x:Bind Details.CanAttemptPlayback}" />
-                            <Button Content="加入队列" Style="{StaticResource SecondaryButtonStyle}" Click="QueueAll_Click" IsEnabled="{x:Bind Details.CanAttemptPlayback}" />
-                            <Button Content="导入到 Beans" Style="{StaticResource SecondaryButtonStyle}" Click="ImportToBeans_Click" IsEnabled="{x:Bind CanImportToBeans}" />
-                        </StackPanel>
-                    </StackPanel>
-                </Grid>
+    <Grid Background="Transparent" SizeChanged="Playlist_SizeChanged">
 
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                    <TextBlock Text="歌曲" Style="{StaticResource SectionTitleTextStyle}" VerticalAlignment="Center" />
-                    <Border Grid.Column="1" Width="300" Height="40" Padding="10,0" CornerRadius="12"
+
+        <ScrollViewer HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="28,8,28,24" Spacing="16">
+                <Button Content="‹  返回" Style="{StaticResource GhostButtonStyle}" Click="Back_Click" HorizontalAlignment="Left"/>
+                <Border x:Name="PlaylistHero" MinHeight="224" Background="Transparent">
+                    <Grid>
+                        <Grid Padding="0,8" ColumnSpacing="28">
+                            <Grid.ColumnDefinitions><ColumnDefinition x:Name="CoverColumn" Width="196" /><ColumnDefinition Width="*" /><ColumnDefinition Width="0" /></Grid.ColumnDefinitions>
+                            <Border x:Name="PlaylistCover" Width="196" Height="196" CornerRadius="12" Background="{StaticResource SurfaceSecondaryBrush}" BorderBrush="#35FFFFFF" BorderThickness="1" VerticalAlignment="Center">
+                                <Image Source="{x:Bind Details.Playlist.CoverUri}" Stretch="UniformToFill" />
+                            </Border>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Spacing="10" MaxWidth="720">
+
+                                <TextBlock Text="{x:Bind Details.Playlist.Title}" Foreground="White" FontSize="30" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" />
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <badge:PlatformBadge Platform="{x:Bind Details.Playlist.Platform}" HorizontalAlignment="Left" />
+                                    <StackPanel Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                                        <TextBlock Text="{x:Bind Details.Playlist.TrackCount}" Foreground="#D0FFFFFF" FontSize="13" />
+                                        <TextBlock Text="首歌曲" Foreground="#D0FFFFFF" FontSize="13" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <TextBlock Text="{x:Bind Details.Playlist.Description}" Foreground="#D8FFFFFF" FontSize="14" TextWrapping="Wrap" MaxLines="2" />
+                                <TextBlock Text="{x:Bind Details.Description}" Foreground="#9FFFFFFF" FontSize="12" TextWrapping="Wrap" MaxLines="2" />
+                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4,0,0">
+                                    <Button Style="{StaticResource PrimaryButtonStyle}" Click="PlayAll_Click" IsEnabled="{x:Bind Details.CanAttemptPlayback}"><StackPanel Orientation="Horizontal" Spacing="7"><FontIcon Glyph="&#xE768;" /><TextBlock Text="播放全部" /></StackPanel></Button>
+                                    <Button Style="{StaticResource SecondaryButtonStyle}" Click="RandomPlay_Click" IsEnabled="{x:Bind Details.CanAttemptPlayback}" AutomationProperties.Name="随机播放此歌单"><StackPanel Orientation="Horizontal" Spacing="7"><FontIcon Glyph="&#xE8B1;" /><TextBlock Text="随机播放" /></StackPanel></Button>
+                                    <Button Style="{StaticResource SecondaryButtonStyle}" Click="QueueAll_Click" IsEnabled="{x:Bind Details.CanAttemptPlayback}"><StackPanel Orientation="Horizontal" Spacing="7"><FontIcon Glyph="&#xE8FD;" /><TextBlock Text="加入队列" /></StackPanel></Button>
+                                    <Button Style="{StaticResource SecondaryButtonStyle}" Click="ImportToBeans_Click" IsEnabled="{x:Bind CanImportToBeans}"><StackPanel Orientation="Horizontal" Spacing="7"><FontIcon Glyph="&#xE898;" /><TextBlock Text="导入到 Beans" /></StackPanel></Button>
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Right" Spacing="4">
+                                <TextBlock Text="{x:Bind Details.Description}" Foreground="#A8FFFFFF" FontSize="11" TextAlignment="Right" MaxWidth="180" TextWrapping="Wrap" />
+                                <TextBlock Text="{x:Bind StatusText, Mode=OneWay}" Foreground="#D8FFFFFF" FontSize="12" TextAlignment="Right" MaxWidth="220" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Border>
+
+                <Grid x:Name="PlaylistToolbar" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="16" RowSpacing="12" Background="#70133345" Padding="14" CornerRadius="16">
+
+                    <Border Height="42" Padding="11,0" CornerRadius="21"
                             Background="{StaticResource SurfaceSecondaryBrush}"
                             BorderBrush="{StaticResource DividerBrush}" BorderThickness="1">
                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
@@ -45,23 +62,30 @@
                             </Button>
                         </Grid>
                     </Border>
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Right">
+                    <StackPanel x:Name="SelectionActions" Grid.Column="1" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
                         <TextBlock Text="{x:Bind FilteredCountText, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center" />
                         <CheckBox x:Name="SelectAllCheckBox" Content="全选" IsThreeState="True" Click="SelectAll_Click"
                                   VerticalAlignment="Center" AutomationProperties.Name="全选当前筛选结果" />
                         <TextBlock Text="{x:Bind SelectionText, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center" />
                         <Button Content="清除选择" Style="{StaticResource GhostButtonStyle}" Click="ClearSelection_Click" />
-                        <TextBlock Text="{x:Bind StatusText, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center" />
+
                     </StackPanel>
                 </Grid>
-                <Border Style="{StaticResource SurfacePanelStyle}" Padding="8">
+                <Border Style="{StaticResource SurfacePanelStyle}" Padding="10" CornerRadius="12">
                     <StackPanel Spacing="8">
+                    <Grid Padding="10,4" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="34" /><ColumnDefinition Width="52" /><ColumnDefinition Width="*" /><ColumnDefinition Width="1.1*" /><ColumnDefinition Width="56" /><ColumnDefinition Width="100" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="2" Text="歌曲" Style="{StaticResource CaptionTextStyle}" />
+                        <TextBlock Grid.Column="3" Text="专辑" Style="{StaticResource CaptionTextStyle}" />
+                        <TextBlock Grid.Column="4" Text="时长" Style="{StaticResource CaptionTextStyle}" />
+                        <TextBlock Grid.Column="5" Text="来源与播放状态" Style="{StaticResource CaptionTextStyle}" />
+                    </Grid>
                     <ListView ItemsSource="{x:Bind FilteredTracks, Mode=OneWay}" IsItemClickEnabled="True" ItemClick="Track_ItemClick" SelectionMode="None" MaxHeight="520" ScrollViewer.VerticalScrollBarVisibility="Auto">
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="models:LibraryTrackPreview">
-                                <Border Margin="0,3" Padding="10,8" CornerRadius="8" Background="{StaticResource SurfacePrimaryBrush}" BorderBrush="{StaticResource DividerBrush}" BorderThickness="1">
-                                    <Grid MinHeight="62" ColumnSpacing="12">
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="34" /><ColumnDefinition Width="52" /><ColumnDefinition Width="*" /><ColumnDefinition Width="180" /><ColumnDefinition Width="68" /><ColumnDefinition Width="155" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <Border Padding="10,5" Background="Transparent" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1">
+                                    <Grid MinHeight="48" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="34" /><ColumnDefinition Width="52" /><ColumnDefinition Width="*" /><ColumnDefinition Width="1.1*" /><ColumnDefinition Width="56" /><ColumnDefinition Width="100" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                         <CheckBox Tag="{x:Bind Id}" Click="TrackSelect_Click" VerticalAlignment="Center" AutomationProperties.Name="选择歌曲" />
                                         <Border Grid.Column="1" Width="46" Height="46" CornerRadius="6" Background="{StaticResource SurfaceSecondaryBrush}"><Image Source="{x:Bind CoverUri}" Stretch="UniformToFill" /></Border>
                                         <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3"><TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis" /><TextBlock Text="{x:Bind Artist}" Style="{StaticResource CaptionTextStyle}" MaxLines="1" TextTrimming="CharacterEllipsis" /></StackPanel>
@@ -78,7 +102,12 @@
                                Style="{StaticResource SecondaryTextStyle}" HorizontalAlignment="Center" Margin="0,18" />
                     </StackPanel>
                 </Border>
-                <TextBlock Text="详情曲目保留平台真实标识；点击播放后仍由统一授权播放源解析器处理。" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+                <Border Style="{StaticResource StatusPanelStyle}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="{x:Bind StatusText, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Content="重新加载" Style="{StaticResource GhostButtonStyle}" Click="Retry_Click" AutomationProperties.Name="重新加载歌单详情" />
+                    </Grid>
+                </Border>
             </StackPanel>
         </ScrollViewer>
     </Grid>

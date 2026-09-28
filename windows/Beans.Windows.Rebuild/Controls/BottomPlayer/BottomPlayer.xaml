@@ -2,7 +2,7 @@
     x:Class="Beans.Windows.Rebuild.Controls.BottomPlayer.BottomPlayer"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid x:Name="PlayerRoot" Height="96" Background="#F7FFFFFF" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0">
+    <Grid x:Name="PlayerRoot" Height="96" Background="#F20A2535" BorderBrush="#4360808A" BorderThickness="0,1,0,0">
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup>
                 <VisualState x:Name="Compact">

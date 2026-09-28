@@ -27,7 +27,7 @@ public sealed class HomeViewModelTests
     }
 
     [Fact]
-    public async Task LiveDiscoveryAlternatesProvidersAndRoutesHeroToRealPlaylist()
+    public async Task LiveDiscoveryAlternatesProvidersAndRoutesHeroToAnimeZone()
     {
         using var viewModel = new HomeViewModel(
             new FakeDiscoveryService((platform, _) => Content(platform, preview: false)),
@@ -41,8 +41,8 @@ public sealed class HomeViewModelTests
             [PlatformId.QqMusic, PlatformId.NetEaseMusic, PlatformId.QqMusic, PlatformId.NetEaseMusic],
             viewModel.Playlists.Select(item => item.SourcePlatform));
         Assert.NotNull(viewModel.HeroTarget);
-        Assert.Equal("playlist", viewModel.HeroTarget!.Route);
-        Assert.Equal("qq", viewModel.HeroTarget.Parameter.PlatformId);
+        Assert.Equal("anime", viewModel.HeroTarget!.Route);
+        Assert.Equal("anime", viewModel.HeroTarget.Parameter.PlatformId);
         Assert.DoesNotContain(viewModel.Playlists, item => item.Title.Contains("Preview", StringComparison.OrdinalIgnoreCase));
     }
 
@@ -69,10 +69,110 @@ public sealed class HomeViewModelTests
         Assert.Equal("本机收藏 · 1 项", viewModel.FavoriteSummaryText);
     }
 
-    private static PlatformDiscoveryContent Content(string platformId, bool preview, bool includeDaily = true)
+    [Fact]
+    public async Task SwitchingBatchesUsesAllCandidatesWithoutNetworkOrAdjacentRepeats()
+    {
+        var requests = 0;
+        using var viewModel = new HomeViewModel(
+            new FakeDiscoveryService((platform, _) =>
+            {
+                requests++;
+                var content = Content(platform, false, playlistCount: 5);
+                return content with { PlaylistSquare = content.RecommendedPlaylists };
+            }), new FakeLibraryService(Snapshot()), new FakeLocalCatalog([]));
+        await viewModel.InitializeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var seen = viewModel.Playlists.Select(item => (item.SourcePlatform, item.Id)).ToHashSet();
+        for (var batch = 0; batch < 5; batch++)
+        {
+            var previous = viewModel.Playlists.Select(item => (item.SourcePlatform, item.Id)).ToHashSet();
+            viewModel.ShowNextPlaylists();
+            var current = viewModel.Playlists.Select(item => (item.SourcePlatform, item.Id)).ToArray();
+            Assert.Equal(4, current.Distinct().Count());
+            Assert.DoesNotContain(current, previous.Contains);
+            seen.UnionWith(current);
+        }
+        Assert.Equal(10, seen.Count);
+        Assert.Equal(2, requests);
+    }
+
+    [Fact]
+    public async Task SmallPoolRetainsCardsAndExplainsWhyItCannotChange()
+    {
+        using var viewModel = new HomeViewModel(
+            new FakeDiscoveryService((platform, _) => Content(platform, false, playlistCount: 2)),
+            new FakeLibraryService(Snapshot()), new FakeLocalCatalog([]));
+        await viewModel.InitializeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        var initial = viewModel.Playlists.ToArray();
+        viewModel.ShowNextPlaylists();
+        Assert.Equal(initial, viewModel.Playlists);
+        Assert.Contains("暂无更多", viewModel.PlaylistStatusText);
+    }
+
+    [Fact]
+    public async Task PartialSourceStillRotatesAndReportsPartialReplacement()
+    {
+        using var viewModel = new HomeViewModel(
+            new FakeDiscoveryService((platform, _) => platform == "qq"
+                ? Content(platform, false, playlistCount: 5)
+                : throw new IOException()),
+            new FakeLibraryService(Snapshot()), new FakeLocalCatalog([]));
+        await viewModel.InitializeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        viewModel.ShowNextPlaylists();
+        Assert.Equal(4, viewModel.Playlists.Count);
+        Assert.All(viewModel.Playlists, item => Assert.Equal(PlatformId.QqMusic, item.SourcePlatform));
+        Assert.Contains(viewModel.Playlists, item => item.Id == "qq-5");
+        Assert.Contains("已换入 1 个", viewModel.PlaylistStatusText);
+    }
+
+    [Fact]
+    public async Task HeroRotatesRealContentWithMatchingRouteAndWrapsWithoutNetwork()
+    {
+        var requests = 0;
+        using var viewModel = new HomeViewModel(
+            new FakeDiscoveryService((platform, _) => { requests++; return Content(platform, false); }),
+            new FakeLibraryService(Snapshot()), new FakeLocalCatalog([]));
+        await viewModel.InitializeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(4, viewModel.HeroSlideCount);
+        var first = viewModel.HeroTarget;
+        var visited = new HashSet<(string, string)>();
+        for (var index = 0; index < 4; index++)
+        {
+            var target = viewModel.HeroTarget!;
+            Assert.Equal(index, viewModel.HeroSlideIndex);
+            Assert.Equal(viewModel.HeroTitle, target.Parameter.Title);
+            Assert.Equal(viewModel.HeroTitle, target.Parameter.NativeId);
+            Assert.True(visited.Add((target.Parameter.PlatformId, target.Parameter.NativeId)));
+            viewModel.ShowNextHero();
+        }
+        Assert.Equal(first, viewModel.HeroTarget);
+        viewModel.ShowHeroSlide(2);
+        Assert.Equal(2, viewModel.HeroSlideIndex);
+        viewModel.ShowHeroSlide(99);
+        Assert.Equal(2, viewModel.HeroSlideIndex);
+        Assert.Equal(2, requests);
+    }
+
+    [Theory]
+    [InlineData(true, 0)]
+    [InlineData(false, 1)]
+    public async Task HeroHandlesEmptyAndSingleSourceWithoutFakeSlides(bool preview, int expectedCount)
+    {
+        using var viewModel = new HomeViewModel(
+            new FakeDiscoveryService((platform, _) => platform == "qq"
+                ? Content(platform, preview, playlistCount: 1) : throw new IOException()),
+            new FakeLibraryService(Snapshot()), new FakeLocalCatalog([]));
+        await viewModel.InitializeAsync(cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(expectedCount, viewModel.HeroSlideCount);
+        var target = viewModel.HeroTarget;
+        viewModel.ShowNextHero();
+        Assert.Equal(target, viewModel.HeroTarget);
+        Assert.Equal(0, viewModel.HeroSlideIndex);
+    }
+
+    private static PlatformDiscoveryContent Content(string platformId, bool preview, bool includeDaily = true, int playlistCount = 3)
     {
         var platform = platformId == "qq" ? PlatformId.QqMusic : PlatformId.NetEaseMusic;
-        var playlists = Enumerable.Range(1, 3)
+        var playlists = Enumerable.Range(1, playlistCount)
             .Select(index => new MusicPlaylist(
                 new MusicIdentity(platform, $"{platformId}-{index}"),
                 $"{platform.ToDisplayName()}歌单 {index}",

@@ -46,9 +46,10 @@ public sealed partial class MainWindow : Window
             var titleBar = AppWindow.TitleBar;
             titleBar.ButtonBackgroundColor = Colors.Transparent;
             titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
-            titleBar.ButtonForegroundColor = ColorHelper.FromArgb(255, 16, 60, 51);
-            titleBar.ButtonHoverBackgroundColor = ColorHelper.FromArgb(24, 8, 122, 89);
-            titleBar.ButtonPressedBackgroundColor = ColorHelper.FromArgb(38, 8, 122, 89);
+            titleBar.ButtonForegroundColor = Colors.White;
+            titleBar.ButtonInactiveForegroundColor = ColorHelper.FromArgb(190, 255, 255, 255);
+            titleBar.ButtonHoverBackgroundColor = ColorHelper.FromArgb(48, 255, 255, 255);
+            titleBar.ButtonPressedBackgroundColor = ColorHelper.FromArgb(72, 255, 255, 255);
         }
     }
 

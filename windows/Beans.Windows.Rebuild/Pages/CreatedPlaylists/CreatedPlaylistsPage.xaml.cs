@@ -31,6 +31,9 @@ public sealed partial class CreatedPlaylistsPage : UserControl, INotifyPropertyC
     private readonly IBeansPlaylistService? _beansPlaylists;
     private CancellationTokenSource? _loadCancellation;
     private bool _isLoading;
+    private bool _beansLoaded;
+    private bool _beansLoading;
+    private string _beansStatusText = "正在读取本机歌单…";
     private string _statusText = "准备加载平台歌单";
     private string _sourceStatusText = "QQ 音乐 · 未检查　网易云音乐 · 未检查";
 
@@ -49,7 +52,8 @@ public sealed partial class CreatedPlaylistsPage : UserControl, INotifyPropertyC
 
     public ObservableCollection<PlatformPlaylistCard> Playlists { get; } = [];
     public ObservableCollection<BeansPlaylist> BeansPlaylists { get; } = [];
-    public Visibility BeansEmptyVisibility => BeansPlaylists.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility BeansEmptyVisibility => _beansLoaded && BeansPlaylists.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+    public string BeansStatusText { get => _beansStatusText; private set => Set(ref _beansStatusText, value, nameof(BeansStatusText)); }
     public string PageTitle => _platformFilter switch
     {
         PlatformId.QqMusic => "QQ 音乐歌单",
@@ -71,10 +75,15 @@ public sealed partial class CreatedPlaylistsPage : UserControl, INotifyPropertyC
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
-        await LoadAsync(false);
+        // Local Beans playlists are available immediately; platform requests fill in below.
         await LoadBeansPlaylistsAsync();
+        await LoadAsync(false);
     }
-    private async void Refresh_Click(object sender, RoutedEventArgs e) => await LoadAsync(true);
+    private async void Refresh_Click(object sender, RoutedEventArgs e)
+    {
+        await LoadBeansPlaylistsAsync();
+        await LoadAsync(true);
+    }
 
     private async void CreateBeansPlaylist_Click(object sender, RoutedEventArgs e)
     {
@@ -101,14 +110,19 @@ public sealed partial class CreatedPlaylistsPage : UserControl, INotifyPropertyC
 
     private async Task LoadBeansPlaylistsAsync()
     {
-        if (_beansPlaylists is null) return;
+        if (_beansPlaylists is null || _beansLoading) return;
+        _beansLoading = true;
         try
         {
+            var playlists = await _beansPlaylists.GetPlaylistsAsync();
             BeansPlaylists.Clear();
-            foreach (var playlist in await _beansPlaylists.GetPlaylistsAsync()) BeansPlaylists.Add(playlist);
+            foreach (var playlist in playlists) BeansPlaylists.Add(playlist);
+            _beansLoaded = true;
+            BeansStatusText = $"本机已保存 {BeansPlaylists.Count} 个 Beans 歌单";
             PropertyChanged?.Invoke(this, new(nameof(BeansEmptyVisibility)));
         }
-        catch { StatusText = "Beans 歌单暂时无法读取"; }
+        catch { BeansStatusText = _beansLoaded ? "Beans 歌单读取失败，已保留当前列表，请刷新重试" : "Beans 歌单读取失败，请刷新重试"; }
+        finally { _beansLoading = false; }
     }
 
     private async Task LoadAsync(bool forceRefresh)

@@ -16,6 +16,7 @@ public sealed partial class SettingsPage : UserControl, INotifyPropertyChanged
     private const string VolumeSettingKey = "settings.default-volume";
     private const string DarkAppearanceSettingKey = "settings.dark-appearance";
     private readonly IPlaybackService _player;
+    public IPlaybackService Player => _player;
     private readonly IPlatformPreferenceStore _preferences;
     private bool _initializing = true;
     private string _statusText = "音量偏好保存在本机";
@@ -35,9 +36,48 @@ public sealed partial class SettingsPage : UserControl, INotifyPropertyChanged
             : _player.VolumePercent;
         DefaultVolumeSlider.Value = Math.Clamp(volume, 0, 100);
         _player.SetVolume(DefaultVolumeSlider.Value);
-        AppearanceToggle.IsOn = string.Equals(_preferences.GetString(DarkAppearanceSettingKey), "true", StringComparison.OrdinalIgnoreCase);
+        // The Beans Music reference UI is dark-first. A missing preference means the
+        // user has not chosen an alternate appearance yet, so keep the product default.
+        AppearanceToggle.IsOn = !string.Equals(_preferences.GetString(DarkAppearanceSettingKey), "false", StringComparison.OrdinalIgnoreCase);
         ApplyAppearance(AppearanceToggle.IsOn);
+        LyricScaleSlider.Value = double.TryParse(_preferences.GetString("settings.lyric-scale"), NumberStyles.Float, CultureInfo.InvariantCulture, out var scale) && double.IsFinite(scale) ? Math.Clamp(scale, .8, 1.4) : 1;
+        TranslationToggle.IsOn = _preferences.GetString("settings.lyric-translation") != "false";
+        ReduceMotionToggle.IsOn = _preferences.GetString("settings.reduce-motion") == "true";
+        UpdateLyricPreview();
         _initializing = false;
+    }
+
+    private void Settings_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var show = e.NewSize.Width >= 940;
+        PreviewColumn.Width = new GridLength(show ? 280 : 0);
+        PreviewPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private void DarkTheme_Click(object sender, RoutedEventArgs e) => AppearanceToggle.IsOn = true;
+    private void LightTheme_Click(object sender, RoutedEventArgs e) => AppearanceToggle.IsOn = false;
+    private void Previous_Click(object sender, RoutedEventArgs e) => _player.Previous();
+    private void Next_Click(object sender, RoutedEventArgs e) => _player.Next();
+    private void PlayPause_Click(object sender, RoutedEventArgs e) => _player.TogglePlayPause();
+    private void LyricsSettings_Changed(object sender, RoutedEventArgs e) => SaveLyricsSettings();
+    private void LyricScale_Changed(object sender, RangeBaseValueChangedEventArgs e) => SaveLyricsSettings();
+    private void UpdateLyricPreview()
+    {
+        if (PreviewLyric is null) return;
+        PreviewLyric.FontSize = 24 * LyricScaleSlider.Value;
+        PreviewTranslation.Visibility = TranslationToggle.IsOn ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private void SaveLyricsSettings()
+    {
+        if (_initializing) return;
+        UpdateLyricPreview();
+        try
+        {
+            _preferences.SetString("settings.lyric-scale", LyricScaleSlider.Value.ToString("R", CultureInfo.InvariantCulture));
+            _preferences.SetString("settings.lyric-translation", TranslationToggle.IsOn ? "true" : "false");
+            _preferences.SetString("settings.reduce-motion", ReduceMotionToggle.IsOn ? "true" : "false");
+            StatusText = "歌词偏好已保存，重新打开播放器后应用";
+        }
+        catch { StatusText = "预览已更新，但暂时无法保存偏好"; }
     }
 
     private void Appearance_Toggled(object sender, RoutedEventArgs e)
@@ -55,16 +95,16 @@ public sealed partial class SettingsPage : UserControl, INotifyPropertyChanged
 
     private void ApplyAppearance(bool dark)
     {
-        SetBrush("ContentBackgroundBrush", dark ? "#14221F" : "#F8FBFA");
-        SetBrush("AppBackgroundBrush", dark ? "#10201C" : "#F3F8F6");
-        SetBrush("SurfacePrimaryBrush", dark ? "#1B2C28" : "#FFFFFF");
-        SetBrush("SurfaceSecondaryBrush", dark ? "#223732" : "#F4F8F7");
-        SetBrush("TextPrimaryBrush", dark ? "#E8F5EF" : "#103C33");
-        SetBrush("TextSecondaryBrush", dark ? "#B4CEC4" : "#4F6F68");
-        SetBrush("TextTertiaryBrush", dark ? "#8DAAA0" : "#819B95");
-        SetBrush("BorderDefaultBrush", dark ? "#553B5C56" : "#1A103C33");
-        SetBrush("DividerBrush", dark ? "#443B5C56" : "#10103C33");
-        SetBrush("Primary050Brush", dark ? "#243C34" : "#EFFAF6");
+        SetBrush("ContentBackgroundBrush", dark ? "#071F2E" : "#F8FBFA");
+        SetBrush("AppBackgroundBrush", dark ? "#061A28" : "#F3F8F6");
+        SetBrush("SurfacePrimaryBrush", dark ? "#C0102F40" : "#FFFFFF");
+        SetBrush("SurfaceSecondaryBrush", dark ? "#0C2737" : "#F4F8F7");
+        SetBrush("TextPrimaryBrush", dark ? "#F1FBFF" : "#103C33");
+        SetBrush("TextSecondaryBrush", dark ? "#B3CBD2" : "#4F6F68");
+        SetBrush("TextTertiaryBrush", dark ? "#7898A2" : "#819B95");
+        SetBrush("BorderDefaultBrush", dark ? "#2A5A7782" : "#1A103C33");
+        SetBrush("DividerBrush", dark ? "#28516C78" : "#10103C33");
+        SetBrush("Primary050Brush", dark ? "#153A47" : "#EFFAF6");
         if (XamlRoot?.Content is FrameworkElement root)
             root.RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light;
     }

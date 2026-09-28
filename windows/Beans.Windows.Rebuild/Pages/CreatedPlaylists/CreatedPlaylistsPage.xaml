@@ -80,6 +80,7 @@
                     <Border Style="{StaticResource SurfacePanelStyle}" Padding="18">
                         <StackPanel Spacing="10">
                             <TextBlock Text="歌单只保存在本机，不会自动写回 QQ 音乐或网易云音乐。" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
+                            <TextBlock Text="{x:Bind BeansStatusText, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" />
                             <ItemsControl ItemsSource="{x:Bind BeansPlaylists}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>

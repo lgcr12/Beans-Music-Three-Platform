@@ -2,30 +2,30 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
-    <Color x:Key="Primary700Color">#087A59</Color>
-    <Color x:Key="Primary600Color">#0A8F66</Color>
-    <Color x:Key="Primary500Color">#16A675</Color>
-    <Color x:Key="Primary400Color">#34BD8D</Color>
-    <Color x:Key="Primary200Color">#BDE9D9</Color>
-    <Color x:Key="Primary100Color">#DDF4EB</Color>
-    <Color x:Key="Primary050Color">#EFFAF6</Color>
+    <Color x:Key="Primary700Color">#18BFA0</Color>
+    <Color x:Key="Primary600Color">#2FD9B5</Color>
+    <Color x:Key="Primary500Color">#4DE6C4</Color>
+    <Color x:Key="Primary400Color">#77F0D5</Color>
+    <Color x:Key="Primary200Color">#4F8791</Color>
+    <Color x:Key="Primary100Color">#1D4C58</Color>
+    <Color x:Key="Primary050Color">#153A47</Color>
 
-    <Color x:Key="TextPrimaryColor">#103C33</Color>
-    <Color x:Key="TextSecondaryColor">#4F6F68</Color>
-    <Color x:Key="TextTertiaryColor">#819B95</Color>
-    <Color x:Key="TextDisabledColor">#B4C4C0</Color>
-    <Color x:Key="AppBackgroundColor">#F3F8F6</Color>
-    <Color x:Key="ContentBackgroundColor">#F8FBFA</Color>
-    <Color x:Key="SurfacePrimaryColor">#FFFFFF</Color>
-    <Color x:Key="SurfaceSecondaryColor">#F4F8F7</Color>
-    <Color x:Key="DangerColor">#E34D59</Color>
-    <Color x:Key="WarningColor">#E69A20</Color>
-    <Color x:Key="SuccessColor">#16A36D</Color>
-    <Color x:Key="SidebarStartColor">#06483D</Color>
-    <Color x:Key="SidebarEndColor">#033C35</Color>
-    <Color x:Key="SidebarActiveColor">#168B69</Color>
-    <Color x:Key="SidebarTextColor">#F2FFFA</Color>
-    <Color x:Key="SidebarTextMutedColor">#C8DDD7</Color>
+    <Color x:Key="TextPrimaryColor">#F1FBFF</Color>
+    <Color x:Key="TextSecondaryColor">#B3CBD2</Color>
+    <Color x:Key="TextTertiaryColor">#7898A2</Color>
+    <Color x:Key="TextDisabledColor">#55727D</Color>
+    <Color x:Key="AppBackgroundColor">#061A28</Color>
+    <Color x:Key="ContentBackgroundColor">#071F2E</Color>
+    <Color x:Key="SurfacePrimaryColor">#C0102F40</Color>
+    <Color x:Key="SurfaceSecondaryColor">#0C2737</Color>
+    <Color x:Key="DangerColor">#FF7180</Color>
+    <Color x:Key="WarningColor">#F4C454</Color>
+    <Color x:Key="SuccessColor">#42E4B4</Color>
+    <Color x:Key="SidebarStartColor">#061B2A</Color>
+    <Color x:Key="SidebarEndColor">#0A2B3A</Color>
+    <Color x:Key="SidebarActiveColor">#1D6470</Color>
+    <Color x:Key="SidebarTextColor">#F2FBFF</Color>
+    <Color x:Key="SidebarTextMutedColor">#A9C3CB</Color>
 
     <SolidColorBrush x:Key="Primary700Brush" Color="{StaticResource Primary700Color}" />
     <SolidColorBrush x:Key="Primary600Brush" Color="{StaticResource Primary600Color}" />
@@ -42,9 +42,9 @@
     <SolidColorBrush x:Key="ContentBackgroundBrush" Color="{StaticResource ContentBackgroundColor}" />
     <SolidColorBrush x:Key="SurfacePrimaryBrush" Color="{StaticResource SurfacePrimaryColor}" />
     <SolidColorBrush x:Key="SurfaceSecondaryBrush" Color="{StaticResource SurfaceSecondaryColor}" />
-    <SolidColorBrush x:Key="BorderDefaultBrush" Color="#1A103C33" />
-    <SolidColorBrush x:Key="BorderStrongBrush" Color="#33103C33" />
-    <SolidColorBrush x:Key="DividerBrush" Color="#10103C33" />
+    <SolidColorBrush x:Key="BorderDefaultBrush" Color="#2A5A7782" />
+    <SolidColorBrush x:Key="BorderStrongBrush" Color="#4A6E929A" />
+    <SolidColorBrush x:Key="DividerBrush" Color="#28516C78" />
     <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
     <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource WarningColor}" />
     <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}" />

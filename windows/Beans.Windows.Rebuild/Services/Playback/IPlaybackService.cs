@@ -20,7 +20,12 @@ public sealed record PlaybackItem(
     PlatformId Platform = PlatformId.Local,
     string? NativeId = null,
     SearchDataOrigin DataOrigin = SearchDataOrigin.Live,
-    string? ProviderMediaId = null);
+    string? ProviderMediaId = null)
+{
+    public string DurationText => Duration.TotalHours >= 1
+        ? Duration.ToString(@"h\:mm\:ss", System.Globalization.CultureInfo.InvariantCulture)
+        : Duration.ToString(@"m\:ss", System.Globalization.CultureInfo.InvariantCulture);
+}
 
 public interface IPlaybackService : INotifyPropertyChanged, IDisposable
 {
@@ -43,11 +48,14 @@ public interface IPlaybackService : INotifyPropertyChanged, IDisposable
     bool IsShuffleEnabled { get; }
     bool IsFavorite { get; }
     PlaybackRepeatMode RepeatMode { get; }
+    string ShuffleModeText { get; }
+    string RepeatModeText { get; }
 
     void AttachDispatcherQueue(DispatcherQueue dispatcherQueue);
     void Prepare(PlaybackItem item, bool replaceQueue = true);
     Task PlayAsync(PlaybackItem item, bool replaceQueue = false);
     Task<PlaybackOperationResult> PlaySearchResultAsync(SearchResultItem item, bool replaceQueue = true, CancellationToken cancellationToken = default);
+    Task<PlaybackOperationResult> PlaySearchResultsAsync(IReadOnlyList<SearchResultItem> items, CancellationToken cancellationToken = default);
     Task<PlaybackOperationResult> QueueSearchResultAsync(SearchResultItem item, bool playNext = false, CancellationToken cancellationToken = default);
     void TogglePlayPause();
     void Previous();
